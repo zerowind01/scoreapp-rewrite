@@ -1,0 +1,1695 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>乐谱管理 · UI 原型</title>
+<style>
+  /* ============ 设计令牌（取自原应用 Tokens.kt 解码值） ============ */
+  :root{
+    --bg-page:#F4F4F6; --surface:#FFFFFF; --surface2:#F1F1F4; --surface3:#E9E9EC;
+    --text1:#111113; --text2:#6C6C73; --text3:#A5A5AD; --line:#ECECEF;
+    --accent:#111113; --accent-fg:#FFFFFF;
+    --tag-type-fg:#1D5C8A; --tag-type-bg:#E6F1F9;
+    --tag-inst-fg:#5B3D8A; --tag-inst-bg:#EFE9FA;
+    --pill-live:#0D7A4A; --link:#0A72C4;
+    --danger-bg:#FDECEC; --danger-fg:#D23A3A;
+    --tab-inactive:#9D9DA5;
+    --r-card:18px; --r-thumb:8px;
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;}
+  body{
+    font-family:var(--font); background:#DEDEE3; color:var(--text1);
+    display:flex; align-items:center; justify-content:center; padding:24px 12px; min-height:100vh;
+  }
+
+  /* ============ 手机外壳 ============ */
+  .phone{
+    width:390px; height:844px; background:var(--bg-page); border-radius:44px;
+    box-shadow:0 28px 70px rgba(20,20,30,.28), 0 0 0 11px #1B1B1F, 0 0 0 13px #33333A;
+    position:relative; overflow:hidden; display:flex; flex-direction:column;
+  }
+  .statusbar{
+    height:48px; flex:0 0 48px; display:flex; align-items:flex-end; justify-content:space-between;
+    padding:0 26px 6px; font-size:14px; font-weight:600; letter-spacing:.2px; color:var(--text1);
+  }
+  .statusbar .icons{display:flex;gap:6px;align-items:center;}
+  .statusbar .icons i{display:block;width:16px;height:11px;border-radius:2px;background:var(--text1);opacity:.85;}
+  .statusbar .icons i.b{width:22px;height:11px;border-radius:3px;}
+  .statusbar .icons i.c{width:6px;height:11px;border-radius:1px;}
+
+  .viewport{flex:1 1 auto;position:relative;overflow:hidden;}
+  .layer{position:absolute;inset:0;display:flex;flex-direction:column;}
+
+  /* ============ 滚动区 ============ */
+  .scroll{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;scrollbar-width:none;padding-bottom:16px;}
+  .scroll::-webkit-scrollbar{display:none;}
+  .with-nav .scroll{padding-bottom:16px;}
+
+  /* ============ 顶部标题区 ============ */
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 6px;gap:10px;}
+  .titles{display:flex;align-items:baseline;gap:16px;min-width:0;}
+  .title-tab{
+    font-size:27px;font-weight:800;letter-spacing:-.6px;color:var(--tab-inactive);
+    background:none;border:0;padding:0;font-family:var(--font);cursor:pointer;transition:color .16s;
+  }
+  .title-tab.on{color:var(--text1);}
+  .title-single{font-size:27px;font-weight:800;letter-spacing:-.6px;color:var(--text1);}
+  .tools{display:flex;align-items:center;gap:8px;flex:0 0 auto;}
+  .iconbtn{
+    width:38px;height:38px;border-radius:50%;border:0;background:var(--surface);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text1);
+    box-shadow:0 1px 2px rgba(17,17,19,.06);transition:transform .12s,background .16s;
+  }
+  .iconbtn:active{transform:scale(.92);}
+  .iconbtn.on{background:var(--accent);color:var(--accent-fg);}
+  .iconbtn svg{width:19px;height:19px;display:block;}
+
+  /* ============ 搜索 ============ */
+  .searchwrap{padding:8px 16px 2px;}
+  .searchbox{
+    display:flex;align-items:center;gap:9px;background:var(--surface);border-radius:14px;
+    padding:11px 14px;box-shadow:0 1px 2px rgba(17,17,19,.05);
+  }
+  .searchbox svg{width:17px;height:17px;color:var(--text3);flex:0 0 auto;}
+  .searchbox input{
+    border:0;outline:0;background:none;flex:1;font-size:15px;font-family:var(--font);color:var(--text1);min-width:0;
+  }
+  .searchbox input::placeholder{color:var(--text3);}
+  .searchbox .clr{border:0;background:var(--surface3);color:var(--text2);width:20px;height:20px;border-radius:50%;
+    font-size:13px;line-height:1;cursor:pointer;display:none;align-items:center;justify-content:center;}
+  .searchbox.has .clr{display:flex;}
+
+  /* ============ 分组 chip 行 ============ */
+  .chiprow{display:flex;gap:8px;padding:10px 16px 2px;overflow-x:auto;scrollbar-width:none;}
+  .chiprow::-webkit-scrollbar{display:none;}
+  .chip{
+    flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:7px 13px;border-radius:999px;
+    background:var(--surface);border:1px solid transparent;font-size:13px;font-weight:600;color:var(--text2);
+    cursor:pointer;transition:.16s;white-space:nowrap;
+  }
+  .chip.on{background:var(--accent);color:var(--accent-fg);}
+  .chip svg{width:14px;height:14px;}
+  .chip .n{font-size:11px;opacity:.7;font-weight:700;}
+
+  /* 生效中的筛选摘要 */
+  .activefilters{display:flex;gap:7px;flex-wrap:wrap;padding:10px 16px 0;}
+  .afchip{
+    display:inline-flex;align-items:center;gap:6px;padding:5px 8px 5px 11px;border-radius:999px;
+    background:var(--surface);font-size:12px;font-weight:600;color:var(--text2);
+  }
+  .afchip b{font-weight:700;color:var(--text1);}
+  .afchip .x{border:0;background:var(--surface3);color:var(--text2);width:16px;height:16px;border-radius:50%;
+    font-size:11px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;}
+
+  /* ============ 分组头 ============ */
+  .grouphead{
+    display:flex;align-items:baseline;gap:8px;padding:18px 16px 8px;
+  }
+  .grouphead .gh-name{font-size:15px;font-weight:800;letter-spacing:-.2px;}
+  .grouphead .gh-n{font-size:12px;color:var(--text3);font-weight:600;}
+
+  /* ============ 乐谱卡片 ============ */
+  .list{padding:6px 16px 0;display:flex;flex-direction:column;gap:11px;}
+  .list.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding-top:8px;}
+  .card{
+    background:var(--surface);border-radius:var(--r-card);padding:11px;display:flex;gap:12px;
+    box-shadow:0 1px 3px rgba(17,17,19,.07);cursor:pointer;transition:transform .12s,box-shadow .16s;
+    align-items:flex-start;
+  }
+  .card:active{transform:scale(.985);}
+  .list.grid .card{flex-direction:column;gap:9px;padding:10px;}
+  .thumb{
+    flex:0 0 auto;width:74px;height:96px;border-radius:var(--r-thumb);overflow:hidden;background:#FBF9F4;
+    box-shadow:inset 0 0 0 1px rgba(17,17,19,.07);position:relative;
+  }
+  .thumb canvas{display:block;width:100%;height:100%;}
+  .list.grid .thumb{width:100%;height:118px;}
+  .card-body{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:5px;}
+  .card-title{
+    font-size:14.5px;font-weight:700;line-height:1.32;letter-spacing:-.2px;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  }
+  .card-sub{font-size:12px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .card-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:2px;}
+  .mtag{
+    display:inline-flex;align-items:center;padding:3px 7px;border-radius:6px;
+    font-size:10.5px;font-weight:600;letter-spacing:.1px;
+  }
+  .mtag.type{color:var(--tag-type-fg);background:var(--tag-type-bg);}
+  .mtag.inst{color:var(--tag-inst-fg);background:var(--tag-inst-bg);}
+  .mtag.ai{color:var(--link);background:#E7F2FC;}
+  .card-foot{display:flex;align-items:center;justify-content:space-between;margin-top:auto;padding-top:4px;}
+  .card-foot .pages{font-size:11px;color:var(--text3);font-weight:600;}
+  .card-foot .more{
+    width:26px;height:26px;border-radius:50%;border:0;background:var(--surface2);color:var(--text2);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;
+  }
+  .card-foot .more svg{width:15px;height:15px;}
+
+  /* ============ 空状态 ============ */
+  .empty{padding:64px 32px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:9px;}
+  .empty .eico{width:52px;height:52px;border-radius:16px;background:var(--surface2);display:flex;align-items:center;justify-content:center;color:var(--text3);}
+  .empty .eico svg{width:24px;height:24px;}
+  .empty h4{margin:0;font-size:15px;font-weight:700;}
+  .empty p{margin:0;font-size:12.5px;color:var(--text3);line-height:1.5;}
+
+  /* ============ 合集卡 ============ */
+  .setcard{
+    background:var(--surface);border-radius:var(--r-card);padding:14px;display:flex;gap:14px;
+    box-shadow:0 1px 3px rgba(17,17,19,.07);cursor:pointer;align-items:center;
+  }
+  .stack{position:relative;width:86px;height:104px;flex:0 0 auto;}
+  .stack canvas{position:absolute;border-radius:6px;box-shadow:0 1px 4px rgba(17,17,19,.16);background:#FBF9F4;}
+
+  /* ============ 作曲家 ============ */
+  /* 右侧留出 A–Z 索引条宽度，否则「N 位」会被索引压住 */
+  .letterhead{padding:14px 26px 6px 16px;font-size:13px;font-weight:800;color:var(--text3);letter-spacing:.6px;display:flex;align-items:baseline;justify-content:space-between;}
+  .letterhead .lh-n{font-size:11.5px;font-weight:600;letter-spacing:0;color:var(--text3);}
+  .composerrow{
+    display:flex;align-items:center;gap:13px;padding:11px 26px 11px 16px;cursor:pointer;transition:background .14s;
+  }
+  .composerrow:active{background:var(--surface2);}
+  .avatar{
+    width:44px;height:44px;border-radius:50%;flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+    color:#fff;font-size:16px;font-weight:700;letter-spacing:.5px;
+  }
+  .composerrow .c-main{flex:1;min-width:0;}
+  .composerrow .c-name{font-size:14.5px;font-weight:700;letter-spacing:-.2px;}
+  .composerrow .c-sub{font-size:11.5px;color:var(--text3);margin-top:2px;}
+  .composerrow .c-n{font-size:12.5px;color:var(--text3);font-weight:600;}
+  /* ---- 作曲家作品页 ---- */
+  .workstop{display:flex;align-items:center;gap:12px;padding:10px 16px 12px;}
+  .workstop .back{
+    width:38px;height:38px;border-radius:50%;border:0;background:var(--surface);display:flex;align-items:center;
+    justify-content:center;cursor:pointer;color:var(--text1);box-shadow:0 1px 2px rgba(17,17,19,.06);flex:0 0 auto;
+  }
+  .workstop .back svg{width:19px;height:19px;}
+  .workstop h2{margin:0;font-size:22px;font-weight:800;letter-spacing:-.4px;}
+  .workshead{display:flex;align-items:center;gap:14px;padding:0 16px 12px;}
+  .workshead .avatar{width:54px;height:54px;font-size:20px;}
+  .wh-main{min-width:0;}
+  .wh-name{font-size:20px;font-weight:800;letter-spacing:-.3px;}
+  .wh-full{font-size:13px;color:var(--text3);margin-top:3px;}
+  .wh-n{font-size:12.5px;font-weight:700;color:var(--text2);margin-top:5px;}
+  .azindex{
+    position:absolute;right:3px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;
+    align-items:center;gap:1px;padding:4px 3px;z-index:4;
+  }
+  .azindex span{font-size:9px;font-weight:700;color:var(--text3);line-height:1.25;cursor:pointer;}
+  .azindex span:hover{color:var(--text1);}
+
+  /* ============ 我的 ============ */
+  .stats{display:flex;gap:11px;padding:12px 16px 0;}
+  .statcard{
+    flex:1;background:var(--surface);border-radius:14px;padding:13px 12px;text-align:left;
+    box-shadow:0 1px 3px rgba(17,17,19,.06);
+  }
+  .statcard .v{font-size:22px;font-weight:800;letter-spacing:-.6px;}
+  .statcard .k{font-size:11.5px;color:var(--text3);margin-top:2px;font-weight:600;}
+  .sectionhead{padding:20px 16px 8px;font-size:13px;font-weight:800;color:var(--text2);letter-spacing:.2px;}
+  .panel{background:var(--surface);border-radius:var(--r-card);margin:0 16px;overflow:hidden;box-shadow:0 1px 3px rgba(17,17,19,.06);}
+  .panelrow{display:flex;align-items:center;gap:12px;padding:13px 14px;position:relative;}
+  .panelrow + .panelrow::before{content:"";position:absolute;left:50px;right:0;top:0;height:1px;background:var(--line);}
+  .panelrow .pico{width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:var(--text1);flex:0 0 auto;}
+  .panelrow .pico svg{width:19px;height:19px;}
+  .panelrow .plabel{flex:1;font-size:14px;font-weight:600;}
+  .panelrow .pval{font-size:12.5px;color:var(--text3);font-weight:600;}
+  .panelrow .pval.live{color:var(--pill-live);}
+  .panelrow .arrow{color:var(--text3);display:flex;}
+  .panelrow .arrow svg{width:16px;height:16px;}
+  .profile{display:flex;align-items:center;gap:14px;padding:6px 16px 4px;}
+  .profile .avatar{width:56px;height:56px;font-size:20px;}
+  .profile .pn{font-size:19px;font-weight:700;letter-spacing:-.3px;}
+  .profile .ps{font-size:12.5px;color:var(--text3);margin-top:3px;}
+
+  /* ============ 底部导航 ============ */
+  .bottomnav{
+    flex:0 0 auto;display:flex;background:rgba(255,255,255,.94);backdrop-filter:blur(14px);
+    border-top:1px solid var(--line);padding:7px 0 20px;
+  }
+  .navitem{
+    flex:1;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:3px;
+    padding:5px 0;cursor:pointer;color:var(--tab-inactive);font-family:var(--font);
+  }
+  .navitem svg{width:22px;height:22px;}
+  .navitem span{font-size:10.5px;font-weight:600;}
+  .navitem.on{color:var(--text1);}
+
+  /* ============ FAB ============ */
+  .fab{
+    position:absolute;right:18px;bottom:18px;width:54px;height:54px;border-radius:19px;border:0;
+    background:var(--accent);color:var(--accent-fg);display:flex;align-items:center;justify-content:center;
+    cursor:pointer;box-shadow:0 8px 20px rgba(17,17,19,.3);z-index:5;transition:transform .14s;
+  }
+  .fab:active{transform:scale(.93);}
+  .fab svg{width:24px;height:24px;}
+
+  /* ============ 底部弹层 ============ */
+  .scrim{position:absolute;inset:0;background:rgba(17,17,19,.34);opacity:0;pointer-events:none;transition:opacity .22s;z-index:20;}
+  .scrim.on{opacity:1;pointer-events:auto;}
+  .sheet{
+    position:absolute;left:0;right:0;bottom:0;background:var(--bg-page);border-radius:26px 26px 0 0;
+    transform:translateY(102%);transition:transform .3s cubic-bezier(.22,.9,.28,1);z-index:21;
+    max-height:88%;display:flex;flex-direction:column;box-shadow:0 -8px 34px rgba(17,17,19,.2);
+  }
+  .sheet.on{transform:translateY(0);}
+  .sheet.tall{height:82%;}
+  .sheet-grip{width:38px;height:4px;border-radius:99px;background:var(--surface3);margin:9px auto 2px;flex:0 0 auto;}
+  .sheet-head{display:flex;align-items:center;justify-content:space-between;padding:8px 18px 10px;flex:0 0 auto;}
+  .sheet-head h3{margin:0;font-size:18px;font-weight:800;letter-spacing:-.3px;}
+  .sheet-head .close{
+    width:30px;height:30px;border-radius:50%;border:0;background:var(--surface3);color:var(--text2);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;
+  }
+  .sheet-head .close svg{width:16px;height:16px;}
+  .sheet-body{flex:1 1 auto;overflow-y:auto;padding:0 18px 10px;scrollbar-width:none;}
+  .sheet-body::-webkit-scrollbar{display:none;}
+  .sheet-foot{flex:0 0 auto;padding:10px 18px 24px;display:flex;gap:10px;border-top:1px solid var(--line);background:var(--bg-page);}
+
+  .sectitle{display:flex;align-items:center;justify-content:space-between;padding:15px 0 9px;}
+  .sectitle .st-l{font-size:13px;font-weight:800;color:var(--text1);display:inline-flex;flex-direction:column;}
+  .sectitle .st-r{font-size:12px;color:var(--link);font-weight:700;cursor:pointer;background:none;border:0;font-family:var(--font);}
+  .sectitle .st-sub{display:block;font-size:11.5px;font-weight:500;color:var(--text3);margin-top:2px;}
+  .divider{height:1px;background:var(--line);margin:4px 0;}
+  .flowchips{display:flex;flex-wrap:wrap;gap:8px;padding-bottom:2px;}
+  .fchip{
+    display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:11px;background:var(--surface);
+    border:1px solid transparent;font-size:13px;font-weight:600;color:var(--text2);cursor:pointer;transition:.15s;
+    font-family:var(--font);
+  }
+  .fchip.on{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);}
+  .fchip .n{
+    font-size:10.5px;font-weight:700;padding:1px 5px;border-radius:6px;background:var(--surface3);color:var(--text3);
+  }
+  .fchip.on .n{background:rgba(255,255,255,.22);color:#fff;}
+  .fchip.dim{opacity:.4;}
+
+  .field{padding:11px 0 3px;}
+  .field label{display:block;font-size:12px;font-weight:700;color:var(--text2);padding-bottom:6px;}
+  .field input{
+    width:100%;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:11px 13px;
+    font-size:14.5px;font-family:var(--font);color:var(--text1);outline:0;transition:border-color .16s;
+  }
+  .field input:focus{border-color:var(--text3);}
+  .field .sugg{display:flex;gap:7px;flex-wrap:wrap;padding-top:8px;}
+  .suggchip{
+    padding:5px 10px;border-radius:9px;background:var(--surface);font-size:12px;font-weight:600;color:var(--text2);
+    cursor:pointer;border:0;font-family:var(--font);
+  }
+  .suggchip:active{background:var(--surface3);}
+
+  .btn{
+    flex:1;border:0;border-radius:14px;padding:14px;font-size:15px;font-weight:700;font-family:var(--font);
+    cursor:pointer;transition:transform .12s;
+  }
+  .btn:active{transform:scale(.985);}
+  .btn.primary{background:var(--accent);color:var(--accent-fg);}
+  .btn.ghost{background:var(--surface3);color:var(--text1);}
+  .btn.danger{background:var(--danger-bg);color:var(--danger-fg);}
+  .btn.wide{flex:1 1 100%;}
+  /* 详情页主操作：强调色整宽按钮。不在 flex 容器里，所以用 width 而非 flex 撑满 */
+  .sharebtn{
+    display:flex;align-items:center;justify-content:center;gap:8px;
+    width:calc(100% - 32px);height:50px;margin:14px 16px 0;border:0;border-radius:15px;
+    background:var(--accent);color:var(--accent-fg);font-size:15px;font-weight:700;
+    font-family:var(--font);cursor:pointer;transition:transform .12s;
+  }
+  .sharebtn:active{transform:scale(.985);}
+  .sharebtn .ico{display:flex;width:19px;height:19px;}
+  .sharebtn .ico svg{width:100%;height:100%;}
+
+  .importrow{
+    display:flex;align-items:center;gap:14px;padding:15px;background:var(--surface);border-radius:16px;
+    cursor:pointer;box-shadow:0 1px 3px rgba(17,17,19,.06);margin-bottom:11px;
+  }
+  .importrow:active{background:var(--surface2);}
+  .importrow .iico{
+    width:44px;height:44px;border-radius:13px;background:var(--surface2);display:flex;align-items:center;
+    justify-content:center;color:var(--text1);flex:0 0 auto;
+  }
+  .importrow .iico svg{width:21px;height:21px;}
+  .importrow .im{flex:1;min-width:0;}
+  .importrow .im h4{margin:0;font-size:14.5px;font-weight:700;}
+  .importrow .im p{margin:3px 0 0;font-size:12px;color:var(--text3);line-height:1.45;}
+
+  /* ============ 详情页 ============ */
+  .detailhead{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px 8px;}
+  .detailhead .back{
+    width:38px;height:38px;border-radius:50%;border:0;background:var(--surface);display:flex;align-items:center;
+    justify-content:center;cursor:pointer;color:var(--text1);box-shadow:0 1px 2px rgba(17,17,19,.06);flex:0 0 auto;
+  }
+  .detailhead .back svg{width:19px;height:19px;}
+  .hero .hmeta{font-size:12.5px;color:var(--text3);line-height:1.68;}
+  .hero .thumb{position:relative;}
+  .hero .editbadge{
+    position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:50%;border:0;padding:0;
+    background:rgba(17,17,19,.55);color:#fff;display:flex;align-items:center;justify-content:center;
+    cursor:pointer;backdrop-filter:blur(2px);
+  }
+  .hero .editbadge svg{width:15px;height:15px;display:block;}
+  .detailhead h2{margin:0;font-size:17px;font-weight:800;letter-spacing:-.3px;flex:1;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .hero{margin:6px 16px 0;background:var(--surface);border-radius:var(--r-card);padding:14px;display:flex;gap:14px;
+    box-shadow:0 1px 3px rgba(17,17,19,.07);}
+  .hero .thumb{width:96px;height:124px;}
+  .hero .hbody{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;}
+  .hero .htitle{font-size:15px;font-weight:700;line-height:1.34;letter-spacing:-.2px;}
+  .hero .hcomp{font-size:12.5px;color:var(--text2);}
+  .kvs{display:flex;flex-direction:column;}
+  .kv{display:flex;align-items:center;justify-content:space-between;padding:11px 0;position:relative;}
+  .kv + .kv::before{content:"";position:absolute;left:0;right:0;top:0;height:1px;background:var(--line);}
+  .kv .k{font-size:13px;color:var(--text2);font-weight:600;}
+  .kv .v{font-size:13.5px;font-weight:700;max-width:62%;text-align:right;}
+
+  /* ============ Toast ============ */
+  .toast{
+    position:absolute;left:50%;bottom:96px;transform:translate(-50%,14px);background:rgba(17,17,19,.93);
+    color:#fff;font-size:13px;font-weight:600;padding:11px 18px;border-radius:13px;max-width:80%;
+    text-align:center;line-height:1.4;opacity:0;pointer-events:none;transition:.24s;z-index:40;
+  }
+  .toast.on{opacity:1;transform:translate(-50%,0);}
+
+  /* ============ 崩溃恢复浮层 ============ */
+  .crash{
+    position:absolute;left:14px;right:14px;bottom:14px;background:var(--surface);border-radius:16px;padding:14px;
+    box-shadow:0 10px 30px rgba(17,17,19,.22);z-index:45;display:none;
+  }
+  .crash.on{display:block;}
+  .crash h5{margin:0 0 5px;font-size:13.5px;font-weight:800;color:var(--danger-fg);}
+  .crash p{margin:0 0 11px;font-size:11.5px;color:var(--text3);line-height:1.5;}
+  .crash .acts{display:flex;gap:8px;}
+  .crash .acts button{flex:1;border:0;border-radius:10px;padding:9px;font-size:12.5px;font-weight:700;
+    font-family:var(--font);cursor:pointer;}
+  .crash .acts .a1{background:var(--surface3);color:var(--text1);}
+  .crash .acts .a2{background:var(--danger-bg);color:var(--danger-fg);}
+
+  .hint{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;font-size:11.5px;color:#6C6C73;letter-spacing:.2px;}
+</style>
+</head>
+<body>
+
+<div class="phone">
+  <div class="statusbar">
+    <span id="clock">9:41</span>
+    <div class="icons"><i class="c"></i><i></i><i class="b"></i></div>
+  </div>
+
+  <div class="viewport">
+    <!-- 主界面 -->
+    <div class="layer with-nav" id="mainLayer">
+      <div class="scroll" id="content"></div>
+      <button class="fab" id="fab" title="导入乐谱">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+      <nav class="bottomnav" id="bottomnav"></nav>
+    </div>
+
+    <!-- 详情页（压在上一层） -->
+    <div class="layer" id="detailLayer" style="display:none;background:var(--bg-page);z-index:10">
+      <div class="scroll" id="detailContent"></div>
+    </div>
+
+    <!-- 弹层 -->
+    <div class="scrim" id="scrim"></div>
+    <div class="sheet" id="sheet">
+      <div class="sheet-grip"></div>
+      <div class="sheet-head">
+        <h3 id="sheetTitle">标题</h3>
+        <button class="close" id="sheetClose">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div class="sheet-body" id="sheetBody"></div>
+      <div class="sheet-foot" id="sheetFoot"></div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <div class="crash" id="crash">
+      <h5>上次运行发生异常</h5>
+      <p>日志已保存到：Android/data/com.example.scoreapp/files/crash_last.txt</p>
+      <div class="acts">
+        <button class="a1" onclick="copyCrashLog()">复制日志</button>
+        <button class="a2" onclick="document.getElementById('crash').classList.remove('on')">关闭</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="hint">纯 HTML + 原生 JS 原型 · 点击卡片看详情 · 右上角图标切筛选 / 搜索 / 网格 · 底部导航切换页面</div>
+
+<script>
+"use strict";
+/* =====================================================================
+   1. 领域常量（对齐原应用的下拉选项与别名表）
+   ===================================================================== */
+const LEVELS      = ["初级","中级","高级","演奏级"];
+const PERIODS     = ["巴洛克","古典","浪漫","印象主义","现代","未分类"];
+const TYPES       = ["奏鸣曲","练习曲","前奏曲","赋格","协奏曲","组曲","变奏曲","夜曲","圆舞曲","叙事曲","即兴曲","交响曲","室内乐"];
+const INSTRUMENTS = ["钢琴","小提琴","大提琴","长笛","单簧管","管弦乐","声乐"];
+const SOURCES     = ["Henle 原版","Peters 版","Bärenreiter 版","本地导入","未编目"];
+
+/* 姓氏 → 全名别名表 */
+/* 姓氏 → 全名。
+   前 17 条还原自原应用的别名表；其后的条目是为演示数据集补充的，
+   原应用只预置了 1 首乐谱，不覆盖这些作曲家。补齐是为了让 A–Z
+   索引条上不会出现汉字（initialOf 的兜底会把汉字原样返回）。 */
+const ALIAS = {
+  "巴赫":"约翰·塞巴斯蒂安·巴赫","贝多芬":"路德维希·范·贝多芬","肖邦":"弗雷德里克·弗朗索瓦·肖邦",
+  "莫扎特":"沃尔夫冈·阿玛多伊斯·莫扎特","德彪西":"阿希尔-克洛德·德彪西","门德尔松":"费利克斯·门德尔松",
+  "帕格尼尼":"尼科罗·帕格尼尼","舒伯特":"弗朗茨·舒伯特","勃拉姆斯":"约翰内斯·勃拉姆斯",
+  "柴可夫斯基":"彼得·伊里奇·柴可夫斯基","李斯特":"弗朗茨·李斯特","海顿":"约瑟夫·海顿",
+  "维瓦尔第":"安东尼奥·维瓦尔第","拉赫玛尼诺夫":"谢尔盖·拉赫玛尼诺夫","车尔尼":"卡尔·车尔尼",
+  "佚名":"佚名","合集":"合集",
+  /* ---- 以下为演示数据集补充 ---- */
+  "舒曼":"罗伯特·舒曼","穆索尔斯基":"莫杰斯特·穆索尔斯基","帕赫贝尔":"约翰·帕赫贝尔",
+  "克莱门蒂":"穆齐奥·克莱门蒂","斯特拉文斯基":"伊戈尔·斯特拉文斯基","比才":"乔治·比才"
+};
+/* 姓氏 → 首字母索引 */
+const SURNAME_INITIAL = {
+  "巴赫":"B","贝多芬":"B","肖邦":"X","莫扎特":"M","德彪西":"D","门德尔松":"M","帕格尼尼":"P","舒伯特":"S",
+  "勃拉姆斯":"B","柴可夫斯基":"C","李斯特":"L","海顿":"H","维瓦尔第":"W","拉赫玛尼诺夫":"L","车尔尼":"C",
+  "佚名":"Y","合集":"H",
+  /* ---- 以下为演示数据集补充 ---- */
+  "舒曼":"S","穆索尔斯基":"M","帕赫贝尔":"P","克莱门蒂":"K","斯特拉文斯基":"S","比才":"B"
+};
+/* 头像色相池 */
+const HUES = ["#b0552f","#3a6ea5","#6b4fa0","#2f7d5b","#a8412f","#4a5a8a","#8a6a24","#7a3f5c","#3f6b6b","#5c5c66"];
+
+/* =====================================================================
+   2. 工具：姓名处理 / 头像色
+   ===================================================================== */
+/** 取姓氏：按中点「·」切分后取最后一段 */
+function shortName(full){
+  if(!full) return full;
+  const parts = full.split("·");
+  return parts.length > 1 ? parts[parts.length-1] : full;
+}
+/** 首字母索引：优先查表，否则取首字符大写，非字母归入 #
+ *  注意：与 Java Character.isLetter 对齐，中日韩汉字同样视为字母 */
+function initialOf(full){
+  const s = shortName(full);
+  if(SURNAME_INITIAL[s]) return SURNAME_INITIAL[s];
+  const c = s.charAt(0);
+  return /\p{L}/u.test(c) ? c.toUpperCase() : "#";
+}
+/** Java 风格 31 进制哈希（保持与原实现一致的溢出行为） */
+function hashStr(s){
+  let h = 0;
+  for(let i=0;i<s.length;i++){ h = (Math.imul(h,31) + s.charCodeAt(i)) | 0; }
+  return h;
+}
+/** 由姓名推导头像底色：哈希取色相池 → 转 HSL(h, .46, .46) */
+function avatarColor(name){
+  const hex = HUES[Math.abs(hashStr(name)) % HUES.length];
+  const r = parseInt(hex.slice(1,3),16)/255, g = parseInt(hex.slice(3,5),16)/255, b = parseInt(hex.slice(5,7),16)/255;
+  const max = Math.max(r,g,b), min = Math.min(r,g,b), d = max-min;
+  let h = 0;
+  if(d !== 0){
+    if(max === r)      h = (((g-b)/d) % 6) * 60;
+    else if(max === g) h = (((b-r)/d) + 2) * 60;
+    else               h = (((r-g)/d) + 4) * 60;
+    h = ((h + 360) % 360);
+  }
+  return `hsl(${h.toFixed(1)}, 46%, 46%)`;
+}
+
+/* =====================================================================
+   3. 程序化缩略图绘制（独立实现的「雕版乐谱」渲染器）
+   ===================================================================== */
+/** 确定性伪随机数（同一 seed 永远得到同一张缩略图） */
+function rng(seed){
+  let a = seed >>> 0;
+  return function(){
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * 绘制雕版乐谱页：若干谱表系统 + 音符 + 小节线
+ * @param {CanvasRenderingContext2D} c
+ * @param {number} w 宽  @param {number} h 高
+ * @param {object} score
+ * @param {boolean} dense 密集模式（网格缩略图）
+ */
+function drawEngrave(c, w, h, score, dense){
+  const r = rng(score.thumbSeed || 1);
+  const paper = "#FBF9F4";
+  c.clearRect(0,0,w,h);
+  c.fillStyle = paper; c.fillRect(0,0,w,h);
+
+  const rows  = Math.max(1, Math.min(score.thumbRows || 5, 8));
+  const cols  = Math.max(1, Math.min(score.thumbCols || 1, 3));
+  const pad   = Math.max(4, w * 0.07);
+  const innerW = w - pad*2;
+  const topPad = h * (dense ? 0.09 : 0.13);
+  const botPad = h * 0.07;
+  const usableH = h - topPad - botPad;
+  const sysGap = usableH / rows;
+
+  // 标题横线（纸张抬头）
+  if(!dense){
+    c.fillStyle = "rgba(17,17,19,.20)";
+    c.fillRect(w*0.30, h*0.055, w*0.40, Math.max(1.6, h*0.008));
+  }
+
+  const ink = "rgba(24,22,20,.80)";
+  const staff = "rgba(24,22,20,.26)";
+
+  for(let row=0; row<rows; row++){
+    const sysTop = topPad + row*sysGap;
+    const staffH = Math.min(sysGap*0.40, h*0.075);
+    const lineGap = staffH/4;
+
+    // 5 条谱线
+    c.strokeStyle = staff;
+    c.lineWidth = Math.max(0.5, h*0.0026);
+    for(let i=0;i<5;i++){
+      const y = sysTop + i*lineGap;
+      c.beginPath(); c.moveTo(pad, y); c.lineTo(w-pad, y); c.stroke();
+    }
+
+    // 音符：每系统按列数划分小节
+    const noteCount = 5 + Math.floor(r()*7);
+    const cellW = innerW / noteCount;
+    c.fillStyle = ink;
+    for(let n=0; n<noteCount; n++){
+      if(r() < 0.14) continue;                       // 留白，避免机械感
+      const cx = pad + cellW*(n+0.5);
+      const step = Math.floor(r()*5);                // 音高落在谱表哪一条线附近
+      const cy = sysTop + step*lineGap;
+      const rw = Math.max(1.5, cellW*0.30), rh = rw*0.68;
+
+      // 符头
+      c.beginPath();
+      c.ellipse(cx, cy, rw, rh, -0.32, 0, Math.PI*2);
+      c.fill();
+
+      // 符干
+      const up = r() > 0.45;
+      c.strokeStyle = ink;
+      c.lineWidth = Math.max(0.6, w*0.008);
+      c.beginPath();
+      if(up){ c.moveTo(cx+rw*0.9, cy); c.lineTo(cx+rw*0.9, cy-staffH*0.92); }
+      else  { c.moveTo(cx-rw*0.9, cy); c.lineTo(cx-rw*0.9, cy+staffH*0.92); }
+      c.stroke();
+
+      // 小节线
+      if((n+1) % cols === 0 && n < noteCount-1){
+        const bx = pad + cellW*(n+1);
+        c.strokeStyle = "rgba(24,22,20,.42)";
+        c.lineWidth = Math.max(0.6, w*0.007);
+        c.beginPath();
+        c.moveTo(bx, sysTop - lineGap*0.5);
+        c.lineTo(bx, sysTop + staffH + lineGap*0.5);
+        c.stroke();
+      }
+    }
+  }
+  // 纸张内描边
+  c.strokeStyle = "rgba(17,17,19,.07)";
+  c.lineWidth = 1;
+  c.strokeRect(0.5, 0.5, w-1, h-1);
+}
+
+/** 绘制唱片封面型缩略图（thumbKind === "cover"） */
+function drawCover(c, w, h, score){
+  // Canvas 的 font 不接受 CSS 变量，必须给出真实字体栈
+  const FONT_STACK = '-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif';
+  c.clearRect(0,0,w,h);
+  const c1 = score.coverC1 || "#4e1a13";
+  const c2 = score.coverC2 || "#8d2f22";
+  const g = c.createLinearGradient(0,0,w,h);
+  g.addColorStop(0, c1); g.addColorStop(1, c2);
+  c.fillStyle = g; c.fillRect(0,0,w,h);
+
+  // 装饰：同心弧
+  c.strokeStyle = "rgba(255,255,255,.16)";
+  c.lineWidth = Math.max(1, w*0.012);
+  for(let i=0;i<3;i++){
+    c.beginPath();
+    c.arc(w*0.5, h*0.46, w*(0.18 + i*0.11), Math.PI*1.08, Math.PI*1.92);
+    c.stroke();
+  }
+
+  const tc = score.coverTColor || "#ffffff";
+  const size = Math.max(9, w * ((score.coverTSize || 15)/100) * 0.62);
+  c.fillStyle = tc;
+  c.textAlign = "center";
+  c.font = `700 ${size}px ${FONT_STACK}`;
+  c.fillText(score.coverTitle || "", w*0.5, h*0.44);
+
+  if(score.coverEn){
+    c.font = `500 ${Math.max(6,size*0.42)}px ${FONT_STACK}`;
+    c.globalAlpha = 0.72;
+    c.fillText(score.coverEn, w*0.5, h*0.44 + size*0.95);
+    c.globalAlpha = 1;
+  }
+  if(score.coverSub){
+    c.font = `500 ${Math.max(6,size*0.40)}px ${FONT_STACK}`;
+    c.globalAlpha = 0.8;
+    c.fillText(score.coverSub, w*0.5, h*0.90);
+    c.globalAlpha = 1;
+  }
+  if(score.coverBarText){
+    c.fillStyle = "rgba(0,0,0,.34)";
+    c.fillRect(0, h*0.80, w, h*0.075);
+    c.fillStyle = tc;
+    c.font = `600 ${Math.max(6,size*0.40)}px ${FONT_STACK}`;
+    c.fillText(score.coverBarText, w*0.5, h*0.80 + h*0.052);
+  }
+  c.strokeStyle = "rgba(17,17,19,.07)";
+  c.lineWidth = 1;
+  c.strokeRect(0.5,0.5,w-1,h-1);
+}
+
+/** 统一入口：按 thumbKind 分派 */
+function paintThumb(canvas, score, dense){
+  const w = canvas.clientWidth || canvas.width;
+  const h = canvas.clientHeight || canvas.height;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+  canvas.width = Math.round(w*dpr);
+  canvas.height = Math.round(h*dpr);
+  const c = canvas.getContext("2d");
+  c.setTransform(dpr,0,0,dpr,0,0);
+  if(score.thumbKind === "cover") drawCover(c, w, h, score);
+  else drawEngrave(c, w, h, score, !!dense);
+}
+
+/* =====================================================================
+   4. 数据源（依据原样例结构构造的古典乐谱库）
+   ===================================================================== */
+let SCORE_SEQ = 1000;
+function mk(title, composer, type, instrument, period, level, source, pages, opts){
+  opts = opts || {};
+  const id = ++SCORE_SEQ;
+  return Object.assign({
+    id, title, composer, type, instrument, period, level, source, pages,
+    dateAdded: Date.now() - id*86400000,
+    filePath: null, assetPdf: null, isAi: false,
+    thumbKind: "engrave",
+    thumbSeed: (id*37) % 997,
+    thumbCols: 1, thumbRows: Math.max(3, Math.min(Math.round(pages/2), 6)),
+    coverTitle:null, coverEn:null, coverTColor:null, coverDeco:null, coverFooter:false,
+    coverBarText:null, coverSub:null, coverC1:null, coverC2:null
+  }, opts);
+}
+
+const SCORES = [
+  mk("《升c小调第十四钢琴奏鸣曲「月光」》Op.27 No.2","路德维希·范·贝多芬","奏鸣曲","钢琴","古典","高级","Henle 原版",14,
+     {assetPdf:"moonlight_op27_no2.pdf", thumbSeed:37, thumbRows:5}),
+  mk("《平均律键盘曲集 第一卷》BWV 846-869","约翰·塞巴斯蒂安·巴赫","前奏曲","钢琴","巴洛克","高级","Bärenreiter 版",96,{thumbSeed:11,thumbRows:6}),
+  mk("《哥德堡变奏曲》BWV 988","约翰·塞巴斯蒂安·巴赫","变奏曲","钢琴","巴洛克","演奏级","Henle 原版",64,{thumbSeed:29,thumbRows:6}),
+  mk("《练习曲 Op.10》","弗雷德里克·弗朗索瓦·肖邦","练习曲","钢琴","浪漫","高级","Peters 版",52,{thumbSeed:53,thumbRows:5}),
+  mk("《夜曲集》","弗雷德里克·弗朗索瓦·肖邦","夜曲","钢琴","浪漫","中级","Henle 原版",88,{thumbSeed:71,thumbRows:6}),
+  mk("《g小调第一叙事曲》Op.23","弗雷德里克·弗朗索瓦·肖邦","叙事曲","钢琴","浪漫","演奏级","Henle 原版",12,{thumbSeed:97,thumbRows:4}),
+  mk("《土耳其进行曲》K.331 第三乐章","沃尔夫冈·阿玛多伊斯·莫扎特","奏鸣曲","钢琴","古典","中级","Peters 版",8,{thumbSeed:13,thumbRows:3}),
+  mk("《D大调双钢琴奏鸣曲》K.448","沃尔夫冈·阿玛多伊斯·莫扎特","奏鸣曲","钢琴","古典","高级","Bärenreiter 版",42,{thumbSeed:131,thumbRows:5}),
+  mk("《月光》/《贝加马斯克组曲》","阿希尔-克洛德·德彪西","组曲","钢琴","印象主义","高级","Durand 版",22,{thumbSeed:151,thumbRows:4}),
+  mk("《牧神午后前奏曲》","阿希尔-克洛德·德彪西","交响曲","管弦乐","印象主义","演奏级","Durand 版",48,{thumbSeed:173,thumbRows:6}),
+  mk("《仲夏夜之梦》序曲 Op.21","费利克斯·门德尔松","交响曲","管弦乐","浪漫","高级","Breitkopf 版",56,{thumbSeed:191,thumbRows:6}),
+  mk("《24 首随想曲》Op.1","尼科罗·帕格尼尼","练习曲","小提琴","浪漫","演奏级","Peters 版",46,{thumbSeed:211,thumbRows:5}),
+  mk("《魔王》D.328","弗朗茨·舒伯特","叙事曲","声乐","浪漫","中级","Bärenreiter 版",10,{thumbSeed:233,thumbRows:3}),
+  mk("《鳟鱼五重奏》D.667","弗朗茨·舒伯特","室内乐","室内乐","浪漫","高级","Henle 原版",72,{thumbSeed:257,thumbRows:6}),
+  mk("《e小调第四交响曲》Op.98","约翰内斯·勃拉姆斯","交响曲","管弦乐","浪漫","演奏级","Breitkopf 版",118,{thumbSeed:277,thumbRows:6}),
+  mk("《匈牙利舞曲》第五号","约翰内斯·勃拉姆斯","圆舞曲","钢琴","浪漫","中级","Peters 版",14,{thumbSeed:293,thumbRows:4}),
+  mk("《天鹅湖》组曲 Op.20a","彼得·伊里奇·柴可夫斯基","组曲","管弦乐","浪漫","高级","Peters 版",86,{thumbSeed:311,thumbRows:6}),
+  mk("《第一钢琴协奏曲》Op.23","彼得·伊里奇·柴可夫斯基","协奏曲","钢琴","浪漫","演奏级","Peters 版",94,{thumbSeed:331,thumbRows:6}),
+  mk("《匈牙利狂想曲》第二号 S.244/2","弗朗茨·李斯特","变奏曲","钢琴","浪漫","演奏级","Editio Musica",18,{thumbSeed:353,thumbRows:4}),
+  mk("《十二首超技练习曲》S.139","弗朗茨·李斯特","练习曲","钢琴","浪漫","演奏级","Editio Musica",124,{thumbSeed:373,thumbRows:6}),
+  mk("《惊愕交响曲》Hob.I:94","约瑟夫·海顿","交响曲","管弦乐","古典","中级","Henle 原版",52,{thumbSeed:397,thumbRows:5}),
+  mk("《四季》Op.8","安东尼奥·维瓦尔第","协奏曲","小提琴","巴洛克","高级","Bärenreiter 版",78,{thumbSeed:419,thumbRows:6}),
+  mk("《c小调第二钢琴协奏曲》Op.18","谢尔盖·拉赫玛尼诺夫","协奏曲","钢琴","现代","演奏级","Boosey 版",104,{thumbSeed:433,thumbRows:6}),
+  mk("《音画练习曲》Op.33","谢尔盖·拉赫玛尼诺夫","练习曲","钢琴","现代","高级","Boosey 版",44,{thumbSeed:457,thumbRows:5}),
+  mk("《钢琴快速练习曲》Op.299","卡尔·车尔尼","练习曲","钢琴","古典","初级","Peters 版",68,{thumbSeed:479,thumbRows:6}),
+  mk("《小奏鸣曲集》Op.36","穆齐奥·克莱门蒂","奏鸣曲","钢琴","古典","初级","本地导入",36,{thumbSeed:491,thumbRows:5}),
+  mk("《小星星变奏曲》K.265","沃尔夫冈·阿玛多伊斯·莫扎特","变奏曲","钢琴","古典","初级","本地导入",9,{thumbSeed:503,thumbRows:3}),
+  mk("《卡农与吉格》","约翰·帕赫贝尔","室内乐","室内乐","巴洛克","中级","本地导入",11,{thumbSeed:521,thumbRows:3}),
+  mk("《无伴奏大提琴组曲》BWV 1007-1012","约翰·塞巴斯蒂安·巴赫","组曲","大提琴","巴洛克","演奏级","Bärenreiter 版",142,{thumbSeed:547,thumbRows:6}),
+  mk("《魔笛》序曲 K.620","沃尔夫冈·阿玛多伊斯·莫扎特","交响曲","管弦乐","古典","高级","Bärenreiter 版",28,{thumbSeed:563,thumbRows:4}),
+  mk("《幻想即兴曲》Op.66","弗雷德里克·弗朗索瓦·肖邦","即兴曲","钢琴","浪漫","高级","Henle 原版",10,{thumbSeed:587,thumbRows:3}),
+  mk("《阿莱城姑娘》组曲","乔治·比才","组曲","管弦乐","浪漫","中级","Peters 版",64,{thumbSeed:601,thumbRows:6}),
+  mk("《长笛与竖琴协奏曲》K.299","沃尔夫冈·阿玛多伊斯·莫扎特","协奏曲","长笛","古典","高级","Bärenreiter 版",58,{thumbSeed:619,thumbRows:5}),
+  mk("《单簧管五重奏》K.581","沃尔夫冈·阿玛多伊斯·莫扎特","室内乐","单簧管","古典","高级","Henle 原版",48,{thumbSeed:641,thumbRows:5}),
+  mk("《浪漫曲》Op.94","罗伯特·舒曼","变奏曲","钢琴","浪漫","中级","Henle 原版",26,{thumbSeed:661,thumbRows:4}),
+  mk("《童年情景》Op.15","罗伯特·舒曼","组曲","钢琴","浪漫","中级","Henle 原版",32,{thumbSeed:683,thumbRows:4}),
+  mk("《冬之旅》D.911","弗朗茨·舒伯特","叙事曲","声乐","浪漫","高级","Bärenreiter 版",82,{thumbSeed:701,thumbRows:6}),
+  mk("《图画展览会》","莫杰斯特·穆索尔斯基","组曲","钢琴","浪漫","演奏级","Peters 版",44,{thumbSeed:727,thumbRows:5}),
+  mk("《春之祭》","伊戈尔·斯特拉文斯基","交响曲","管弦乐","现代","演奏级","Boosey 版",152,{thumbSeed:743,thumbRows:6}),
+  mk("《二十世纪钢琴小品选》","佚名","组曲","钢琴","现代","中级","本地导入",40,{thumbSeed:761,thumbRows:5}),
+  mk("《爵士风格练习曲》","合集","练习曲","钢琴","现代","中级","本地导入",30,{thumbSeed:787,thumbRows:5}),
+  // 一张封面型缩略图，用于展示 cover 渲染分支
+  mk("《阿希尔-克洛德·德彪西 作品集》","阿希尔-克洛德·德彪西","组曲","钢琴","印象主义","高级","Durand 版",168,{
+    thumbKind:"cover", thumbSeed:809, thumbRows:6,
+    coverTitle:"DEBUSSY", coverEn:"PIANO WORKS · UR TEXT", coverTColor:"#ffffff",
+    coverDeco:"arc", coverFooter:true, coverBarText:"DURAND ÉDITIONS",
+    coverSub:"印象主义 · 钢琴", coverC1:"#243b4a", coverC2:"#5b7f96",
+    coverTx:15, coverTy:24, coverTSize:13, coverTGap:15, coverSubX:15, coverSubY:120
+  })
+];
+
+/* 谱单（合集）：以种子列表引用乐谱 */
+const SETS = [
+  /* 原应用预置的唯一谱单，原样保留 */
+  {name:"独奏会备选曲目", desc:"贝多芬奏鸣曲，含慢板乐章与终曲", seeds:[37]},
+  /* ---- 以下为演示数据集补充 ---- */
+  {name:"巴洛克复调训练", desc:"从平均律到哥德堡，逐步推进的复调练习路径", seeds:[11,29,547]},
+  {name:"肖邦夜曲全集", desc:"浪漫派夜曲体裁的完整梳理", seeds:[71,53,97]},
+  {name:"协奏曲舞台准备", desc:"三首大协奏曲，适合作为比赛与音乐会曲目", seeds:[331,433,419]},
+  {name:"初级入门曲集", desc:"车尔尼与小奏鸣曲，适合入门阶段", seeds:[479,491,503]}
+];
+
+/* =====================================================================
+   5. 应用状态
+   ===================================================================== */
+const state = {
+  tab:"manage",          // manage | composers | me
+  libTab:"scores",       // scores | sets
+  query:"",
+  searchOpen:false,
+  filters:{composer:new Set(), type:new Set(), instrument:new Set()},
+  pending:{composer:new Set(), type:new Set(), instrument:new Set()},
+  pendingGroup:"composer",
+  groupBy:"composer",
+  grid:false,
+  sort:"composer",
+  detail:null,           // 当前详情页乐谱
+  sheet:null,            // filter | import | edit | sort | null
+  editTarget:null,
+  moreTarget:null,
+  works:null,
+  editDraft:null,
+  composerQuery:"",
+  toastTimer:null
+};
+
+/* =====================================================================
+   6. 业务逻辑：搜索 / 筛选 / 分组 / 统计
+   ===================================================================== */
+/** 关键词搜索：命中 title / composer / type / instrument / period / source */
+function matchesQuery(s, q){
+  const key = (q || "").trim().toLowerCase();
+  if(!key) return true;
+  return [s.title, s.composer, s.type, s.instrument, s.period, s.source]
+    .some(v => (v || "").toLowerCase().includes(key));
+}
+/** 单条乐谱是否满足给定筛选集（维度内取并集，维度间取交集） */
+function matchesFilters(s, f){
+  if(f.composer.size   && !f.composer.has(s.composer))     return false;
+  if(f.type.size       && !f.type.has(s.type))             return false;
+  if(f.instrument.size && !f.instrument.has(s.instrument)) return false;
+  return true;
+}
+/** 可见乐谱 = 搜索 ∩ 筛选 */
+function visibleScores(){
+  return SCORES.filter(s => matchesQuery(s, state.query) && matchesFilters(s, state.filters));
+}
+/** 排序 */
+function sortScores(list){
+  const by = state.sort;
+  const arr = list.slice();
+  if(by === "composer")      arr.sort((a,b)=> a.composer.localeCompare(b.composer,"zh") || a.title.localeCompare(b.title,"zh"));
+  else if(by === "title")    arr.sort((a,b)=> a.title.localeCompare(b.title,"zh"));
+  else if(by === "dateAdded")arr.sort((a,b)=> b.dateAdded - a.dateAdded);
+  else if(by === "pages")    arr.sort((a,b)=> b.pages - a.pages);
+  return arr;
+}
+/** 分组：组内数量降序，数量相同按组名升序；作曲家分组显示姓氏 */
+function groupScores(list, groupBy){
+  const map = new Map();
+  for(const s of list){
+    const key = s[groupBy] || "未分类";
+    if(!map.has(key)) map.set(key, []);
+    map.get(key).push(s);
+  }
+  const keys = [...map.keys()].sort((a,b)=>{
+    const d = map.get(b).length - map.get(a).length;
+    return d !== 0 ? d : a.localeCompare(b, "zh");
+  });
+  return keys.map(k => ({
+    key: k,
+    label: groupBy === "composer" ? shortName(k) : k,
+    items: map.get(k)
+  }));
+}
+/** 分面计数：在「其它维度」的约束下，该取值的命中数 */
+function facetCount(dim, value){
+  const others = {composer:true, type:true, instrument:true};
+  delete others[dim];
+  return SCORES.filter(s => {
+    if(s[dim] !== value) return false;
+    if(!matchesQuery(s, state.query)) return false;
+    for(const d in others){
+      if(state.pending[d].size && !state.pending[d].has(s[d])) return false;
+    }
+    return true;
+  }).length;
+}
+/** 待应用筛选条件下的结果总数 */
+function pendingResultCount(){
+  return SCORES.filter(s => matchesQuery(s, state.query) && matchesFilters(s, state.pending)).length;
+}
+/** 某维度下出现过的全部取值（按出现次数降序） */
+function facetValues(dim){
+  const m = new Map();
+  for(const s of SCORES){
+    const v = s[dim] || "未分类";
+    m.set(v, (m.get(v)||0)+1);
+  }
+  return [...m.keys()].sort((a,b)=> (m.get(b)-m.get(a)) || a.localeCompare(b,"zh"));
+}
+/** 去重统计：作曲家数 / 类型数 / 乐器数 */
+function distinct(field){
+  return new Set(SCORES.map(s => s[field])).size;
+}
+/** 作曲家人数按姓氏聚合 */
+function composerGroups(){
+  const m = new Map();
+  for(const s of SCORES){
+    if(!m.has(s.composer)) m.set(s.composer, []);
+    m.get(s.composer).push(s);
+  }
+  return [...m.entries()].map(([full, items])=>({
+    full, short: shortName(full), initial: initialOf(full), items
+  })).sort((a,b)=> a.full.localeCompare(b.full, "zh"));
+}
+
+/* =====================================================================
+   7. 图标
+   ===================================================================== */
+const ICON = {
+  search:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
+  filter:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M3 5h18M6 12h12M10 19h4"/></svg>',
+  grid:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>',
+  list:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>',
+  sort:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16M4 17l3 3 3-3M17 20V4M14 7l3-3 3 3"/></svg>',
+  more:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>',
+  back:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
+  chev:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>',
+  book:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 016.5 3H19v15H6.5A2.5 2.5 0 004 20.5z"/><path d="M4 20.5A2.5 2.5 0 016.5 18H19v3H6.5"/></svg>',
+  music:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg>',
+  note:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13"/><circle cx="9" cy="18" r="2.6"/><path d="M12 6l6 2"/></svg>',
+  person:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M5 21c0-3.6 3.1-6 7-6s7 2.4 7 6"/></svg>',
+  user:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.5 19c1-2.4 3-3.6 5.5-3.6s4.5 1.2 5.5 3.6"/></svg>',
+  download:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11M8 11l4 4 4-4M5 20h14"/></svg>',
+  broom:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4l6 6M9 20l7-7M4 20l3-3 3 3-3 3z"/></svg>',
+  photo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="14" rx="3"/><circle cx="12" cy="13" r="3.4"/><path d="M8 6l1.5-2h5L16 6"/></svg>',
+  file:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5"/></svg>',
+  share:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 14v4a2 2 0 002 2h10a2 2 0 002-2v-4"/></svg>',
+  edit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L20 8l-4-4L4 16z"/></svg>',
+  trash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg>',
+  open:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-8 8"/><path d="M18 14v4a2 2 0 01-2 2H6a2 2 0 01-2-2V8a2 2 0 012-2h4"/></svg>',
+  layers:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg>'
+};
+
+/* =====================================================================
+   8. 渲染
+   ===================================================================== */
+const $ = id => document.getElementById(id);
+
+function esc(s){
+  return String(s == null ? "" : s).replace(/[&<>"']/g, m =>
+    ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+}
+
+/** 顶部工具栏 */
+function topbarHTML(){
+  if(state.tab === "manage"){
+    const tools = [
+      {k:"search", icon: state.searchOpen ? ICON.list : ICON.search, on: state.searchOpen, title:"搜索"},
+      {k:"filter", icon: ICON.filter, on: hasActiveFilters(), title:"筛选与分组"},
+      {k:"grid",   icon: state.grid ? ICON.list : ICON.grid, on: state.grid, title:"切换视图"},
+      {k:"sort",   icon: ICON.sort, on:false, title:"排序"}
+    ];
+    return `<div class="topbar">
+      <div class="titles">
+        <button class="title-tab ${state.libTab==="scores"?"on":""}" data-act="libtab" data-v="scores">乐谱库</button>
+        <button class="title-tab ${state.libTab==="sets"?"on":""}" data-act="libtab" data-v="sets">合集</button>
+      </div>
+      <div class="tools">${tools.map(t =>
+        `<button class="iconbtn ${t.on?"on":""}" title="${t.title}" data-act="tool" data-v="${t.k}">${t.icon}</button>`).join("")}
+      </div></div>`;
+  }
+  if(state.tab === "composers"){
+    return `<div class="topbar">
+      <div class="titles"><span class="title-single">作曲家</span></div>
+      <div class="tools">
+        <button class="iconbtn ${state.searchOpen?"on":""}" title="搜索" data-act="tool" data-v="search">${state.searchOpen?ICON.list:ICON.search}</button>
+      </div></div>`;
+  }
+  return `<div class="topbar">
+    <div class="titles"><span class="title-single">我的</span></div>
+  </div>`;
+}
+
+function searchHTML(placeholder){
+  if(!state.searchOpen) return "";
+  const val = state.tab === "composers" ? state.composerQuery : state.query;
+  return `<div class="searchwrap">
+    <div class="searchbox ${val?"has":""}">
+      ${ICON.search}
+      <input id="searchInput" placeholder="${esc(placeholder)}" value="${esc(val)}" autocomplete="off" />
+      <button class="clr" data-act="clearquery">✕</button>
+    </div></div>`;
+}
+
+function hasActiveFilters(){
+  const f = state.filters;
+  return f.composer.size + f.type.size + f.instrument.size > 0;
+}
+
+/** 乐谱卡片 */
+function scoreCardHTML(s, dense){
+  const tags = [
+    `<span class="mtag type">${esc(s.type)}</span>`,
+    `<span class="mtag inst">${esc(s.instrument)}</span>`
+  ];
+  if(s.isAi) tags.push(`<span class="mtag ai">AI 识别</span>`);
+  return `<article class="card" data-act="open" data-id="${s.id}">
+    <div class="thumb"><canvas data-thumb="${s.id}" data-dense="${dense?1:0}"></canvas></div>
+    <div class="card-body">
+      <div class="card-title">${esc(s.title)}</div>
+      <div class="card-sub">${esc(s.composer)}</div>
+      <div class="card-tags">${tags.join("")}</div>
+      <div class="card-foot">
+        <span class="pages">${s.pages} 页 · ${esc(s.period)} · ${esc(s.level)}</span>
+        <button class="more" data-act="edit" data-id="${s.id}" title="编辑">${ICON.more}</button>
+      </div>
+    </div></article>`;
+}
+
+/** 乐谱库页 */
+function renderScoresTab(){
+  const list = sortScores(visibleScores());
+  if(!list.length){
+    return `<div class="empty">
+      <div class="eico">${ICON.book}</div>
+      <h4>没有匹配的乐谱</h4>
+      <p>换个关键词或首字母试试</p>
+    </div>`;
+  }
+  const groups = groupScores(list, state.groupBy);
+  return groups.map(g => `
+    <div class="grouphead">
+      <span class="gh-name">${esc(g.label)}</span>
+      <span class="gh-n">${g.items.length} 首</span>
+    </div>
+    <div class="list ${state.grid?"grid":""}">
+      ${g.items.map(s => scoreCardHTML(s, state.grid)).join("")}
+    </div>`).join("");
+}
+
+/** 合集页 */
+function renderSetsTab(){
+  return `<div class="list" style="padding-top:14px">
+    ${SETS.map((set,i) => {
+      const items = set.seeds.map(id => SCORES.find(s => s.thumbSeed === id) || SCORES.find(s => s.id === id)).filter(Boolean);
+      const cnt = items.length || set.seeds.length;
+      return `<article class="setcard" data-act="openset" data-i="${i}">
+        <div class="stack">
+          ${items.slice(0,3).map((s,k) => {
+            const off = [0,5,10][k], sc = [1,0.955,0.91][k];
+            return `<canvas data-setthumb="${s.id}" data-off="${off}" data-scale="${sc}"
+              style="width:78px;height:98px;left:${off}px;top:${off}px;transform:scale(${sc});transform-origin:top left;opacity:${1-k*0.18}"></canvas>`;
+          }).join("")}
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:15px;font-weight:700;letter-spacing:-.2px">${esc(set.name)}</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:4px;line-height:1.5">${esc(set.desc)}</div>
+          <div style="font-size:11.5px;color:var(--text3);margin-top:7px;font-weight:600">${cnt} 首乐谱</div>
+        </div>
+        <span style="color:var(--text3);display:flex">${ICON.chev}</span>
+      </article>`;
+    }).join("")}
+  </div>`;
+}
+
+/** 筛选摘要 chip 行 */
+function activeFiltersHTML(){
+  if(!hasActiveFilters()) return "";
+  const chips = [];
+  for(const dim of ["composer","type","instrument"]){
+    for(const v of state.filters[dim]){
+      chips.push(`<span class="afchip">${esc(dim==="composer"?shortName(v):v)}
+        <button class="x" data-act="rmfilter" data-dim="${dim}" data-v="${esc(v)}">✕</button></span>`);
+    }
+  }
+  chips.push(`<span class="afchip" style="cursor:pointer" data-act="clearfilters"><b>清空</b></span>`);
+  return `<div class="activefilters">${chips.join("")}</div>`;
+}
+
+/** 分组 chip 行 */
+function groupChipsHTML(){
+  const opts = [["composer","按作曲家"],["type","按曲目类型"],["instrument","按乐器"]];
+  return `<div class="chiprow">
+    ${opts.map(([k,label]) =>
+      `<button class="chip ${state.groupBy===k?"on":""}" data-act="setgroup" data-v="${k}">${ICON.layers}${label}</button>`).join("")}
+  </div>`;
+}
+
+/** 主内容渲染 */
+function renderMain(){
+  // 作曲家作品页是压在页签之上的一层视图
+  if(state.works){
+    $("content").innerHTML = renderWorks();
+    $("fab").style.display = "none";
+    $("bottomnav").innerHTML = bottomNavHTML();
+    paintAllThumbs();
+    return;
+  }
+  let html = topbarHTML();
+
+  if(state.tab === "manage"){
+    html += searchHTML("搜索曲名、作曲家、类型、乐器…");
+    if(state.libTab === "scores"){
+      html += groupChipsHTML();
+      html += activeFiltersHTML();
+      html += `<div id="listArea">${renderScoresTab()}</div>`;
+    }else{
+      html += renderSetsTab();
+    }
+    $("fab").style.display = "flex";
+  }
+  else if(state.tab === "composers"){
+    html += searchHTML("搜索作曲家（中文 / 拼音）");
+    const q = state.composerQuery.trim().toLowerCase();
+    const groups = composerGroups().filter(g =>
+      !q || g.full.toLowerCase().includes(q) || g.short.toLowerCase().includes(q));
+    if(!groups.length){
+      html += `<div class="empty"><div class="eico">${ICON.person}</div>
+        <h4>没有匹配的作曲家</h4><p>换个关键词或首字母试试</p></div>`;
+    }else{
+      const byLetter = new Map();
+      for(const g of groups){
+        if(!byLetter.has(g.initial)) byLetter.set(g.initial, []);
+        byLetter.get(g.initial).push(g);
+      }
+      const letters = [...byLetter.keys()].sort();
+      html += letters.map(L => `
+        <div class="letterhead" id="letter-${L}"><span>${L}</span><span class="lh-n">${byLetter.get(L).length} 位</span></div>
+        ${byLetter.get(L).map(g => `
+          <div class="composerrow" data-act="opencomposer" data-name="${esc(g.full)}">
+            <div class="avatar" style="background:${avatarColor(g.full)}">${esc(initialOf(g.full))}</div>
+            <div class="c-main">
+              <div class="c-name">${esc(shortName(g.full))}</div>
+              <div class="c-sub">${esc(g.full)}</div>
+            </div>
+            <span class="c-n">${g.items.length}</span>
+          </div>`).join("")}`).join("");
+      html += `<div class="azindex">${letters.map(L=>`<span data-act="jump" data-v="${L}">${L}</span>`).join("")}</div>`;
+    }
+    $("fab").style.display = "none";
+  }
+  else {
+    // 我的
+    const nScore = SCORES.length;
+    const nSet = SETS.length;
+    const nComp = distinct("composer");
+    html += `<div class="profile">
+      <div class="avatar" style="background:${avatarColor("乐谱收藏家")}">谱</div>
+      <div><div class="pn">乐谱收藏家</div>
+      <div class="ps">已连续练习 12 天 · 累计 46 小时</div></div>
+    </div>
+    <div class="stats">
+      <div class="statcard"><div class="v">${nScore}</div><div class="k">乐谱</div></div>
+      <div class="statcard"><div class="v">${nSet}</div><div class="k">谱单</div></div>
+      <div class="statcard"><div class="v">${nComp}</div><div class="k">作曲家</div></div>
+    </div>
+    <div class="sectionhead">元数据</div>
+    <div class="panel">
+      <div class="panelrow"><span class="pico">${ICON.person}</span><span class="plabel">作曲家</span><span class="pval">${nComp} 位</span></div>
+      <div class="panelrow"><span class="pico">${ICON.book}</span><span class="plabel">曲目类型</span><span class="pval">${distinct("type")} 类</span></div>
+      <div class="panelrow"><span class="pico">${ICON.music}</span><span class="plabel">乐器</span><span class="pval">${distinct("instrument")} 种</span></div>
+    </div>
+    <div class="sectionhead">设置</div>
+    <div class="panel">
+      <div class="panelrow"><span class="pico">${ICON.download}</span><span class="plabel">导入与存储</span><span class="pval">本地 128 MB</span><span class="arrow">${ICON.chev}</span></div>
+      <div class="panelrow"><span class="pico">${ICON.sort}</span><span class="plabel">自动识别元数据</span><span class="pval live">已开启</span></div>
+      <div class="panelrow"><span class="pico">${ICON.broom}</span><span class="plabel">清理缓存</span><span class="pval">24 MB</span><span class="arrow">${ICON.chev}</span></div>
+    </div>
+    <div style="height:20px"></div>`;
+    $("fab").style.display = "none";
+  }
+
+  $("content").innerHTML = html;
+  paintAllThumbs();
+  $("bottomnav").innerHTML = bottomNavHTML();
+}
+
+function bottomNavHTML(){
+  const items = [
+    {k:"manage",    label:"乐谱",  icon:ICON.book},
+    {k:"composers", label:"作曲家",icon:ICON.person},
+    {k:"me",        label:"我的",  icon:ICON.user}
+  ];
+  return items.map(it => `<button class="navitem ${activeTab()===it.k?"on":""}" data-act="tab" data-v="${it.k}">
+    ${it.icon}<span>${it.label}</span></button>`).join("");
+}
+
+/** 当前高亮的页签。作品页由「作曲家」页推入，因此归属该页签 */
+function activeTab(){
+  return state.works ? "composers" : state.tab;
+}
+
+/**
+ * 作曲家作品页。
+ *
+ * 顶栏是固定标题「作品」，作曲家身份放在下方抬头块里，
+ * 避免同一个名字在一屏里出现两次以上。
+ */
+function renderWorks(){
+  const composer = state.works;
+  const works = SCORES.filter(s => s.composer === composer)
+    .sort((a,b) => a.title.localeCompare(b.title, "zh"));
+  let html = `
+    <div class="workstop">
+      <button class="back" data-act="closeworks" title="返回">${ICON.back}</button>
+      <h2>作品</h2>
+    </div>
+    <div class="workshead">
+      <div class="avatar lg" style="background:${avatarColor(composer)}">${esc(initialOf(composer))}</div>
+      <div class="wh-main">
+        <div class="wh-name">${esc(shortName(composer))}</div>
+        <div class="wh-full">${esc(composer)}</div>
+        <div class="wh-n">${works.length} 首作品</div>
+      </div>
+    </div>`;
+
+  if(!works.length){
+    html += `<div class="empty"><div class="eico">${ICON.note}</div><h4>暂无作品</h4></div>`;
+    return html;
+  }
+
+  html += `<div class="list">${works.map(s => scoreCardHTML(s, false)).join("")}</div>`;
+  return html;
+}
+
+/** 批量绘制当前 DOM 中的缩略图 */
+function paintAllThumbs(){
+  document.querySelectorAll("canvas[data-thumb]").forEach(cv => {
+    const s = SCORES.find(x => x.id === +cv.dataset.thumb);
+    if(s) paintThumb(cv, s, cv.dataset.dense === "1");
+  });
+  document.querySelectorAll("canvas[data-setthumb]").forEach(cv => {
+    const s = SCORES.find(x => x.id === +cv.dataset.setthumb);
+    if(s) paintThumb(cv, s, true);
+  });
+}
+
+/* =====================================================================
+   9. 详情页
+   ===================================================================== */
+function openDetail(score){
+  state.detail = score;
+  const s = score;
+  $("detailContent").innerHTML = `
+    <div class="detailhead">
+      <button class="back" data-act="closedetail" title="返回">${ICON.back}</button>
+      <button class="iconbtn" data-act="more" data-id="${s.id}" title="更多">${ICON.more}</button>
+    </div>
+    <div class="hero">
+      <div class="thumb">
+        <canvas data-thumb="${s.id}" data-dense="0"></canvas>
+        <button class="editbadge" data-act="edit" data-id="${s.id}" title="编辑">${ICON.edit}</button>
+      </div>
+      <div class="hbody">
+        <div class="htitle">${esc(s.title)}</div>
+        <div class="hcomp">${esc(s.composer)}</div>
+        <div class="hmeta">${esc(metaLine(s))}</div>
+      </div>
+    </div>
+
+    <button class="sharebtn" data-act="share" data-id="${s.id}">
+      <span class="ico">${ICON.share}</span>分享</button>
+
+    <div class="sectionhead">元数据</div>
+    <div class="panel" style="padding:0 14px">
+      <div class="kvs">
+        <div class="kv"><span class="k">作曲家</span><span class="v">${esc(s.composer)}</span></div>
+        <div class="kv"><span class="k">曲目类型</span><span class="v">${esc(s.type)}</span></div>
+        <div class="kv"><span class="k">乐器</span><span class="v">${esc(s.instrument)}</span></div>
+        <div class="kv"><span class="k">时期 / 风格</span><span class="v">${esc(s.period)}</span></div>
+        <div class="kv"><span class="k">难度</span><span class="v">${esc(s.level)}</span></div>
+        <div class="kv"><span class="k">来源</span><span class="v">${esc(s.source)}</span></div>
+        <div class="kv"><span class="k">页数</span><span class="v">${s.pages > 0 ? s.pages + " 页" : "—"}</span></div>
+      </div>
+    </div>
+
+    <div class="sectionhead">分类归属</div>
+    <div class="panel" style="padding:0 14px">
+      <div class="kvs">
+        <div class="kv"><span class="k">作曲家</span><span class="v">${esc(s.composer)}</span></div>
+        <div class="kv"><span class="k">曲目类型</span><span class="v">${esc(s.type)}</span></div>
+        <div class="kv"><span class="k">乐器</span><span class="v">${esc(s.instrument)}</span></div>
+      </div>
+    </div>
+    <div style="height:24px"></div>`;
+  $("detailLayer").style.display = "flex";
+  $("mainLayer").style.display = "none";
+  paintAllThumbs();
+}
+
+/**
+ * 详情页头部的元信息行：`曲目类型 · 乐器 · 时期 / 风格 · 难度`。
+ * 空白字段会被剔除，避免留下悬空的分隔符。
+ */
+function metaLine(s){
+  return [s.type, s.instrument, s.period, s.level].filter(x => x && String(x).trim()).join(" · ");
+}
+
+function closeDetail(){
+  state.detail = null;
+  $("detailLayer").style.display = "none";
+  $("mainLayer").style.display = "flex";
+}
+
+function fmtDate(ts){
+  const d = new Date(ts);
+  const p = n => String(n).padStart(2,"0");
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/**
+ * 保存时的字段归一化。
+ *
+ * 原应用在保存回调里对每个空字段填入固定占位取值，
+ * 避免空串在筛选分面里裂成额外的桶。
+ */
+function normalizeDraft(d){
+  const t = v => String(v == null ? "" : v).trim();
+  return Object.assign({}, d, {
+    title:      t(d.title),
+    composer:   t(d.composer) || "佚名",
+    type:       t(d.type) || "未编目",
+    instrument: t(d.instrument) || "未分类",
+    period:     t(d.period) || "未指定",
+    level:      t(d.level) || "—",
+    source:     t(d.source) || "本地导入",
+    pages:      parseInt(d.pages, 10) || 1
+  });
+}
+
+/* =====================================================================
+   10. 弹层
+   ===================================================================== */
+function openSheet(kind, target){
+  state.sheet = kind;
+  if(kind === "edit"){
+    state.editTarget = target || null;
+    state.editDraft = Object.assign({}, target);
+    $("sheetTitle").textContent = "编辑乐谱";
+    $("sheet").classList.toggle("tall", true);
+  }else if(kind === "filter"){
+    state.pending = {
+      composer:new Set(state.filters.composer),
+      type:new Set(state.filters.type),
+      instrument:new Set(state.filters.instrument)
+    };
+    state.pendingGroup = state.groupBy;
+    $("sheetTitle").textContent = "筛选与分组";
+    $("sheet").classList.toggle("tall", true);
+  }else if(kind === "import"){
+    $("sheetTitle").textContent = "导入乐谱";
+    $("sheet").classList.toggle("tall", false);
+  }else if(kind === "sort"){
+    $("sheetTitle").textContent = "排序方式";
+    $("sheet").classList.toggle("tall", false);
+  }else if(kind === "more"){
+    state.moreTarget = target || null;
+    $("sheetTitle").textContent = "更多";
+    $("sheet").classList.toggle("tall", false);
+  }else if(kind === "set"){
+    $("sheetTitle").textContent = target.name;
+    $("sheet").classList.toggle("tall", true);
+  }
+  renderSheet();
+  $("scrim").classList.add("on");
+  $("sheet").classList.add("on");
+}
+
+function closeSheet(){
+  state.sheet = null;
+  $("scrim").classList.remove("on");
+  $("sheet").classList.remove("on");
+}
+
+function renderSheet(){
+  const k = state.sheet;
+  if(k === "filter")  return renderFilterSheet();
+  if(k === "edit")    return renderEditSheet();
+  if(k === "import")  return renderImportSheet();
+  if(k === "sort")    return renderSortSheet();
+  if(k === "more")    return renderMoreSheet();
+  if(k === "set")     return renderSetSheet();
+}
+
+function renderMoreSheet(){
+  const s = state.moreTarget;
+  if(!s) return;
+  $("sheetBody").innerHTML = `<div class="panel" style="padding:0 14px;margin:8px -14px 0">
+      <div class="panelrow" data-act="openpdf" data-id="${s.id}">
+        <span class="pico">${ICON.open}</span><span class="plabel">打开乐谱</span><span class="arrow">${ICON.chev}</span></div>
+      <div class="panelrow" data-act="edit" data-id="${s.id}">
+        <span class="pico">${ICON.edit}</span><span class="plabel">编辑元数据</span><span class="arrow">${ICON.chev}</span></div>
+      <div class="panelrow" data-act="delete" data-id="${s.id}">
+        <span class="pico" style="color:var(--danger-fg)">${ICON.trash}</span>
+        <span class="plabel" style="color:var(--danger-fg)">从乐谱库删除</span></div>
+    </div>`;
+  $("sheetFoot").innerHTML = `<button class="btn ghost wide" data-act="esheetclose">取消</button>`;
+}
+
+function facetSectionHTML(dim, title){
+  const vals = facetValues(dim);
+  const chips = vals.map(v => {
+    const on  = state.pending[dim].has(v);
+    const cnt = facetCount(dim, v);
+    return `<button class="fchip ${on?"on":""} ${cnt===0&&!on?"dim":""}"
+      data-act="pfacet" data-dim="${dim}" data-v="${esc(v)}">
+      ${esc(dim==="composer"?shortName(v):v)}<span class="n">${cnt}</span></button>`;
+  }).join("");
+  return `<div class="sectitle">
+      <span class="st-l">${title}</span>
+      <button class="st-r" data-act="pclear" data-dim="${dim}">清空</button>
+    </div>
+    <div class="flowchips">${chips}</div>`;
+}
+
+function renderFilterSheet(){
+  const groups = [["composer","按作曲家"],["type","按曲目类型"],["instrument","按乐器"]];
+  $("sheetBody").innerHTML = groups.map(([d,t],i) =>
+    (i ? '<div class="divider" style="margin:14px 0 0"></div>' : "") + facetSectionHTML(d,t)).join("")
+    + `<div class="divider" style="margin:16px 0 0"></div>
+       <div class="sectitle"><span class="st-l">分组方式<span class="st-sub">决定列表如何归类</span></span></div>
+       <div class="flowchips">
+         ${[["composer","按作曲家"],["type","按曲目类型"],["instrument","按乐器"]].map(([k,label]) =>
+           `<button class="fchip ${state.pendingGroup===k?"on":""}" data-act="pgroup" data-v="${k}">${label}</button>`).join("")}
+       </div>`;
+  $("sheetFoot").innerHTML = `
+    <button class="btn ghost" data-act="preset">重置</button>
+    <button class="btn primary" data-act="papply">查看 ${pendingResultCount()} 个结果</button>`;
+}
+
+function editFieldHTML(key, label, placeholder, value, suggestions){
+  return `<div class="field">
+    <label>${label}</label>
+    <input data-edit="${key}" value="${esc(value)}" placeholder="${placeholder}" />
+    ${suggestions ? `<div class="sugg">${suggestions.slice(0,6).map(s =>
+      `<button class="suggchip" data-act="sugg" data-k="${key}" data-v="${esc(s)}">${esc(s)}</button>`).join("")}</div>` : ""}
+  </div>`;
+}
+
+function renderEditSheet(){
+  const d = state.editDraft;
+  $("sheetBody").innerHTML =
+    editFieldHTML("title","标题","乐谱标题", d.title, null) +
+    editFieldHTML("composer","作曲家（点选下方常用姓氏自动填全名）","如 路德维希·范·贝多芬", d.composer, Object.values(ALIAS)) +
+    editFieldHTML("type","曲目类型","如 奏鸣曲", d.type, TYPES) +
+    editFieldHTML("instrument","乐器","如 钢琴", d.instrument, INSTRUMENTS) +
+    editFieldHTML("period","时期 / 风格","如 浪漫", d.period, PERIODS) +
+    editFieldHTML("level","难度","如 高级", d.level, LEVELS) +
+    editFieldHTML("source","来源","如 本地导入", d.source, SOURCES) +
+    editFieldHTML("pages","页数","如 16", d.pages, null) +
+    `<div style="height:8px"></div>`;
+  $("sheetFoot").innerHTML = `
+    ${state.editTarget ? `<button class="btn danger" data-act="edel" style="flex:0 0 92px">删除</button>` : ""}
+    <button class="btn ghost" data-act="esheetclose" style="flex:0 0 78px">取消</button>
+    <button class="btn primary" data-act="esave">保存</button>`;
+}
+
+function renderImportSheet(){
+  $("sheetBody").innerHTML = `
+    <div class="importrow" data-act="pickimages">
+      <div class="iico">${ICON.photo}</div>
+      <div class="im"><h4>从相册选择图片</h4>
+      <p>多选图片，自动合并为一份 PDF 乐谱</p></div>
+      <span style="color:var(--text3);display:flex">${ICON.chev}</span>
+    </div>
+    <div class="importrow" data-act="pickpdf">
+      <div class="iico">${ICON.file}</div>
+      <div class="im"><h4>选择 PDF 文件</h4>
+      <p>直接导入已有 PDF 乐谱</p></div>
+      <span style="color:var(--text3);display:flex">${ICON.chev}</span>
+    </div>
+    <p style="font-size:11.5px;color:var(--text3);line-height:1.6;padding:6px 4px 0">
+      图片导入会按 A4（595 × 842 pt）逐页居中排版，最长边压到 1400 px 后写入
+      <code>files/scores/import_&lt;标题&gt;_&lt;时间戳&gt;.pdf</code>。</p>`;
+  $("sheetFoot").innerHTML = `<button class="btn ghost wide" data-act="esheetclose">取消</button>`;
+}
+
+function renderSortSheet(){
+  const opts = [["composer","按作曲家"],["title","按标题"],["dateAdded","最近添加"],["pages","页数从多到少"]];
+  $("sheetBody").innerHTML = `<div class="flowchips" style="padding-top:8px">
+    ${opts.map(([k,label]) =>
+      `<button class="fchip ${state.sort===k?"on":""}" data-act="setsort" data-v="${k}">${label}</button>`).join("")}
+  </div>`;
+  $("sheetFoot").innerHTML = `<button class="btn primary wide" data-act="esheetclose">完成</button>`;
+}
+
+function renderSetSheet(){
+  const set = state.setTarget;
+  const items = set.seeds.map(id => SCORES.find(s => s.thumbSeed === id) || SCORES.find(s => s.id === id)).filter(Boolean);
+  $("sheetBody").innerHTML = `
+    <p style="font-size:12.5px;color:var(--text2);line-height:1.6;margin:0 0 12px">${esc(set.desc)}</p>
+    <div class="list" style="padding:0;gap:9px">
+      ${items.map(s => scoreCardHTML(s,false)).join("")}
+    </div>`;
+  $("sheetFoot").innerHTML = `<button class="btn primary wide" data-act="opensetplay">打开谱单</button>`;
+}
+
+/* =====================================================================
+   11. Toast
+   ===================================================================== */
+function toast(msg){
+  const el = $("toast");
+  el.textContent = msg;
+  el.classList.add("on");
+  clearTimeout(state.toastTimer);
+  state.toastTimer = setTimeout(()=> el.classList.remove("on"), 2200);
+}
+
+function copyCrashLog(){
+  const txt = "uncaught@2026-09-17 01:12:44  device=Android 14  abi=arm64-v8a\n" +
+              "java.lang.IllegalStateException: PdfRenderer: file not opened\n" +
+              "  at com.example.scoreapp.ui.components.PdfDocState.open(PdfViewer.kt:88)\n";
+  if(navigator.clipboard) navigator.clipboard.writeText(txt).then(()=>toast("日志已复制")).catch(()=>toast("复制失败"));
+  else toast("日志已复制");
+}
+
+/* =====================================================================
+   12. 事件分发
+   ===================================================================== */
+document.addEventListener("click", ev => {
+  const el = ev.target.closest("[data-act]");
+  if(!el) return;
+  const act = el.dataset.act;
+  const v = el.dataset.v;
+  const id = +el.dataset.id;
+
+  switch(act){
+    case "tab":
+      state.tab = v; state.searchOpen = false; state.works = null;
+      renderMain(); break;
+
+    case "libtab":
+      state.libTab = v; renderMain(); break;
+
+    case "tool":
+      if(v === "search"){ state.searchOpen = !state.searchOpen; renderMain();
+        const i = $("searchInput"); if(i) i.focus(); }
+      else if(v === "grid"){ state.grid = !state.grid; renderMain(); }
+      else if(v === "filter"){ openSheet("filter"); }
+      else if(v === "sort"){ openSheet("sort"); }
+      break;
+
+    case "clearquery":
+      if(state.tab === "composers") state.composerQuery = ""; else state.query = "";
+      renderMain(); break;
+
+    case "setgroup":
+      state.groupBy = v; renderMain(); break;
+
+    case "rmfilter":
+      state.filters[el.dataset.dim].delete(el.dataset.v); renderMain(); break;
+
+    case "clearfilters":
+      state.filters = {composer:new Set(), type:new Set(), instrument:new Set()};
+      renderMain(); toast("已清空筛选"); break;
+
+    case "open":
+      openDetail(SCORES.find(s => s.id === id)); break;
+
+    case "closedetail":
+      closeDetail(); break;
+
+    case "edit":
+      ev.stopPropagation();
+      openSheet("edit", SCORES.find(s => s.id === id)); break;
+
+    case "delete":
+      doDelete(SCORES.find(s => s.id === id)); break;
+
+    case "share":
+      doShare(SCORES.find(s => s.id === id)); break;
+
+    case "openpdf":
+      doOpenPdf(SCORES.find(s => s.id === id)); break;
+
+    case "more":
+      ev.stopPropagation();
+      openSheet("more", SCORES.find(s => s.id === id)); break;
+
+    case "opencomposer": {
+      // 进入这位作曲家的作品页，而不是把筛选条件塞进乐谱库
+      state.query = ""; state.searchOpen = false;
+      state.tab = "composers";
+      state.works = el.dataset.name;
+      renderMain();
+      break;
+    }
+
+    case "closeworks":
+      state.works = null;
+      renderMain();
+      break;
+
+    case "jump": {
+      const t = document.getElementById("letter-" + v);
+      if(t) t.scrollIntoView({behavior:"smooth", block:"start"});
+      break;
+    }
+
+    case "openset": {
+      state.setTarget = SETS[+el.dataset.i];
+      openSheet("set"); break;
+    }
+
+    case "opensetplay": {
+      const set = state.setTarget;
+      toast(`打开谱单：${set.name}`);
+      closeSheet(); break;
+    }
+
+    /* ---- 筛选弹层 ---- */
+    case "pfacet": {
+      const dim = el.dataset.dim, val = el.dataset.v;
+      const set = state.pending[dim];
+      set.has(val) ? set.delete(val) : set.add(val);
+      renderSheet(); break;
+    }
+    case "pclear":
+      state.pending[el.dataset.dim] = new Set(); renderSheet(); break;
+    case "pgroup":
+      state.pendingGroup = v; renderSheet(); break;
+    case "preset":
+      state.pending = {composer:new Set(), type:new Set(), instrument:new Set()};
+      state.pendingGroup = "composer"; renderSheet(); break;
+    case "papply":
+      state.filters = {
+        composer:new Set(state.pending.composer),
+        type:new Set(state.pending.type),
+        instrument:new Set(state.pending.instrument)
+      };
+      state.groupBy = state.pendingGroup;
+      closeSheet(); renderMain();
+      toast(`已筛选出 ${pendingResultCount()} 首乐谱`); break;
+
+    /* ---- 编辑弹层 ---- */
+    case "sugg": {
+      const k = el.dataset.k;
+      const inp = document.querySelector(`input[data-edit="${k}"]`);
+      if(inp){ inp.value = el.dataset.v; state.editDraft[k] = el.dataset.v; }
+      break;
+    }
+    case "esave": {
+      collectEditDraft();
+      const d = normalizeDraft(state.editDraft);
+      if(!d.title){ toast("请填写标题"); break; }
+      Object.assign(state.editTarget, d);
+      toast("已保存修改");
+      closeSheet(); renderMain(); break;
+    }
+    case "edel": {
+      doDelete(state.editTarget); break;
+    }
+    case "esheetclose":
+      closeSheet(); break;
+
+    /* ---- 排序 ---- */
+    case "setsort":
+      state.sort = v; renderSheet(); renderMain(); break;
+
+    /* ---- 导入 ---- */
+    case "pickimages":
+      closeSheet();
+      toast("已生成 PDF 并加入乐谱库：相册乐谱 · " + new Date().toLocaleDateString("zh-CN"));
+      break;
+    case "pickpdf":
+      closeSheet();
+      toast("已导入 PDF：" + "本地乐谱_" + Date.now().toString().slice(-6));
+      break;
+  }
+});
+
+function collectEditDraft(){
+  document.querySelectorAll("input[data-edit]").forEach(inp => {
+    const k = inp.dataset.edit;
+    state.editDraft[k] = k === "pages" ? (+inp.value || 1) : inp.value;
+  });
+}
+
+function doDelete(score){
+  if(!score) return;
+  const i = SCORES.indexOf(score);
+  if(i >= 0) SCORES.splice(i,1);
+  toast(`已删除「${score.title.slice(0,12)}${score.title.length>12?"…":""}」`);
+  closeSheet(); closeDetail(); renderMain();
+}
+
+function doShare(score){
+  if(!score) return;
+  if(score.filePath || score.assetPdf) toast("已分享 PDF：" + (score.filePath || score.assetPdf));
+  else toast("这份乐谱还没有 PDF 文件，已分享曲谱信息");
+}
+
+function doOpenPdf(score){
+  if(!score) return;
+  if(score.filePath || score.assetPdf) toast("打开乐谱：" + (score.filePath || score.assetPdf));
+  else toast("这份乐谱还没有 PDF 文件，可在列表里导入");
+}
+
+/* 输入事件 */
+document.addEventListener("input", ev => {
+  const t = ev.target;
+  if(t.id === "searchInput"){
+    if(state.tab === "composers") state.composerQuery = t.value;
+    else state.query = t.value;
+    const pos = t.selectionStart;
+    renderMain();
+    const ni = $("searchInput");
+    if(ni){ ni.focus(); ni.setSelectionRange(pos,pos); }
+  }
+  if(t.dataset && t.dataset.edit) state.editDraft[t.dataset.edit] = t.value;
+});
+
+$("sheetClose").addEventListener("click", closeSheet);
+$("scrim").addEventListener("click", closeSheet);
+$("fab").addEventListener("click", () => openSheet("import"));
+
+/* 启动 */
+(function boot(){
+  const d = new Date();
+  $("clock").textContent = `${d.getHours()}:${String(d.getMinutes()).padStart(2,"0")}`;
+  renderMain();
+  // 演示崩溃恢复浮层（4 秒后自动收起）
+  setTimeout(()=>{ $("crash").classList.add("on"); }, 1200);
+  setTimeout(()=>{ $("crash").classList.remove("on"); }, 9000);
+})();
+</script>
+</body>
+</html>

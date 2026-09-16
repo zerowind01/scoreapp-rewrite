@@ -1,0 +1,16 @@
+# 统一换行符，避免 Windows / macOS / Linux 之间反复产生整文件 diff
+* text=auto
+
+# Gradle wrapper 必须是 LF，否则在 Unix 上无法执行
+gradlew text eol=lf
+*.sh    text eol=lf
+
+# Windows 批处理必须是 CRLF
+*.bat   text eol=crlf
+
+# 二进制文件不做换行转换
+*.jar   binary
+*.png   binary
+*.jpg   binary
+*.ttf   binary
+*.keystore binary

@@ -1,0 +1,36 @@
+# ============================================================
+# 本仓库只提交「独立重写」的成果。
+# 原始 APK 与 jadx 反编译产物属于第三方应用的版权材料，
+# 仅作为本地分析输入，一律不入库。
+# ============================================================
+
+# ---- 原始 APK（第三方应用）----
+base.apk
+
+# ---- jadx 反编译产物（本地分析用）----
+source_recover/
+source_recover_verbose/
+source_recover_check/
+decoded_resources/
+
+# ---- 分析工具与运行日志 ----
+tools/
+jadx_*.log
+
+# ---- 本地工作笔记（AI 助手记忆目录，含逆向分析过程记录）----
+.workbuddy-ai/
+
+# ---- 构建产物 ----
+*.apk
+*.aab
+build/
+.gradle/
+.kotlin/
+local.properties
+captures/
+
+# ---- IDE / 系统 ----
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
