@@ -137,12 +137,13 @@ private val BottomNavClearance = 92.dp
 private val BottomNavHeight = 52.dp
 
 /**
- * 选中项焦点气泡的直径（dp）。
+ * 选中项焦点气泡的尺寸（dp）。
  *
- * 刻意略大于导台内容高度、又不超过导台总高，使气泡在玻璃上微微溢出但仍被完整包住。
- * 必须同时给宽高——只给一边会让 [CircleShape] 渲染成椭圆。
+ * 刻意做成"略微拉宽"的椭圆而非正圆：宽比高多 4dp，在玻璃导台上包裹感更松弛。
+ * 必须同时给出宽高——只给一边会让 [CircleShape] 渲染成正圆或椭圆，无法控形。
  */
-private val BottomNavBubbleSize = 46.dp
+private val BottomNavBubbleWidth = 50.dp
+private val BottomNavBubbleHeight = 46.dp
 
 // ---------------------------------------------------------------- 底部导航
 
@@ -173,13 +174,12 @@ private fun BottomNav(state: ScoreAppState, modifier: Modifier = Modifier) {
                     .clickable { state.selectTab(tab) },
                 contentAlignment = Alignment.Center,
             ) {
-                // 选中项：白色圆形气泡浮在玻璃之上，对应参考图里那颗高亮圆底。
-                // 必须锁定为正方形——宽高不等时 CircleShape 也只会渲染成椭圆，
-                // 所以这里用固定 52dp 见方而非 fillMaxWidth 撑满页签。
+                // 选中项：白色气泡浮在玻璃之上，对应参考图里那颗高亮圆底。
+                // 横向刻意比纵向宽 4dp，得到"略微拉宽"的椭圆观感。
                 if (selected) {
                     Box(
                         modifier = Modifier
-                            .size(BottomNavBubbleSize)
+                            .size(width = BottomNavBubbleWidth, height = BottomNavBubbleHeight)
                             .shadow(3.dp, CircleShape, clip = false)
                             .clip(CircleShape)
                             .background(Color.White.copy(alpha = 0.92f)),

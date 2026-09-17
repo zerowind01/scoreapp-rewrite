@@ -269,13 +269,14 @@
   .navitem svg{width:21px;height:21px;}
   .navitem span{font-size:10px;font-weight:600;line-height:1;}
   .navitem.on{color:var(--text1);}
-  /* 选中项：白色圆形气泡浮在玻璃之上，对应参考图里那颗高亮圆底。
-     必须锁定为正方形——border-radius:999px 只能把矩形的角切圆，
-     宽高不等时会渲染成椭圆，所以这里用固定 52×52 而非撑满页签宽度。
+  /* 选中项：白色气泡浮在玻璃之上，对应参考图里那颗高亮圆底。
+     刻意做成"略微拉宽"的椭圆而非正圆——宽 56 / 高 52，横向多 4px，
+     在玻璃导台上包裹感更松弛。注意不能只给 border-radius 而不给尺寸：
+     圆角只能把矩形的角切圆、纠正不了宽高比，宽高不等时渲染即椭圆。
      用伪元素绘制，避免被 .navitem 自身的层叠/圆角切掉边角。 */
   .navitem.on::before{
     content:"";position:absolute;top:50%;left:50%;
-    width:52px;height:52px;
+    width:56px;height:52px;
     transform:translate(-50%,-50%);
     border-radius:50%;
     background:rgba(255,255,255,.92);
@@ -284,7 +285,7 @@
   }
   .navitem:active::before{
     content:"";position:absolute;top:50%;left:50%;
-    width:52px;height:52px;
+    width:56px;height:52px;
     transform:translate(-50%,-50%);
     border-radius:50%;
     background:rgba(255,255,255,.62);z-index:-1;
