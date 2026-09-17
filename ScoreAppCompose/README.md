@@ -148,14 +148,34 @@ gradlew.bat :composeApp:assembleDebug --offline
 | 谱单详情 | 列出谱单成员，可打开谱单 |
 | 更多 | 打开乐谱 / 编辑元数据 / 从乐谱库删除 |
 
-### 程序化缩略图
+### 封面：文件首页优先，程序化绘制兜底
 
-列表缩略图**不依赖任何图片资源**，由 `thumbSeed` 驱动确定性随机数在 Canvas 上实时绘制：
+封面缩略图分三条路径，与 HTML 原型同口径：
+
+1. **有实体文件且能渲染** → 取**文件首页**当封面。
+   - PDF：`PdfRenderer` 取第 0 页，按 `min(640 / 页宽, 1.4f)` 缩放，
+     `ARGB_8888` + `eraseColor(-1)` 铺白底后 `render(..., RENDER_MODE_FOR_DISPLAY)`
+   - 非 `.pdf`（相册导入的图）：`BitmapFactory` 普通位图解码
+   - 缓存：`CoverRenderer` 内部的 `LruCache<String, ImageBitmap>(12 * 1024 * 1024)`，
+     `sizeOf = width * 4 * height`（**刻意**不用 `Bitmap.byteCount`，与原应用一致）。
+     *没有*独立的 `ThumbCache` 类型——它就是这个 object 的私有字段
+2. **有实体文件但渲染不出来** → 叠「预览加载失败」提示层
+   （底 `#EFEFF2`、图标 `#B4B4BC`、文字 `#8A8A93` @ 9sp Medium）
+3. **没有实体文件** → 退回程序化绘制
+
+程序化绘制**是兜底，不是主路径**。它不依赖任何图片资源，由 `thumbSeed` 驱动
+确定性随机数实时绘制：
 
 - `engrave`（默认）：雕版乐谱页 —— 若干谱表系统，每系统 5 条谱线 + 符头 + 符干 + 小节线
 - `cover`：唱片封面 —— 渐变底 + 同心弧装饰 + 标题/副标题/色带排版
 
 同一份乐谱在任何设备、任何尺寸下都会渲染出同一张图（`mulberry32` 纯整数运算，跨平台一致）。
+
+> **两处缓存策略不一致是刻意的。** 封面按路径缓存、有固定 12 MB 预算、
+> 按 `宽×4×高` 估体积；阅读器按页序缓存、上限取 `maxMemory()/8`、
+> 按 `Bitmap.byteCount` 估。这是原应用本来的样子，且各有道理（封面数量多、
+> 单张尺寸固定；阅读器一份文档内页数有限、单页更大）。**统一它们会改变内存行为，
+> 不是重构该顺手做的事。**
 
 ---
 
@@ -193,26 +213,82 @@ A-Z 索引条上就会出现中文。
 - 弹层标题固定为 `编辑乐谱`，没有「新建乐谱」分支
 - 悬浮按钮打开的是**导入乐谱**弹层
 
-### 字段归一化中的一处加固
+### 三处原应用瑕疵已改正
 
-原应用保存时对空字段填入固定占位值：曲目类型 → `未编目`、乐器 → `未分类`、
+反编译证据显示原应用本身有三处不干净。本工程**全部改正**，并抽成可测的纯逻辑
+（`domain/ReaderBarText.kt`、`ScoreDraft.normalized`）由 `commonTest` 锁住：
+
+| # | 原应用现象 | 本工程处置 |
+| --- | --- | --- |
+| ① | 导入回调与保存回调两个调用点，都把 `未编目`（语义属「曲目类型」）填进了**作曲家**字段，后面每个占位值顺移一格 | 按语义归位。写成显式语义表：作曲家→`佚名`、类型→`未编目`、乐器→`未分类`、时期→`未指定`、难度→`—`、来源→`本地导入`。不再靠「位置对齐」隐式推断 |
+| ② | 阅读器顶栏的「共 N 页」副标题与「N 页」徽标**重复** | `ReaderBarText.subtitle()` 只在就绪态报页数，`badgeText()` 独立保留（维持原视觉）；两者口径一致 |
+| ③ | `pageCount == 0` 时副标题仍是「读取中…」，与正文「这份 PDF 没有任何页面」**并存**——顶栏说还在读、正文说读完了 | 把状态显式建模成 `ReaderPhase` 四态（`Loading` / `Failed` / `Empty` / `Ready`），矛盾组合在类型上就不存在。空文档报「没有页面」 |
+
+第 ① 处还纠正了一个上游误读：原应用两个导入调用点写的都是 `本地导入`
+（`MainActivityKt` 两处调用点均如此），曾误加过一个 `相册导入` 取值 ——
+那会把同一个来源拆成两个筛选面，已移除。
+
+### 字段归一化
+
+保存与导入共用同一套归一化口径（`ScoreDraft.normalized`），
+空字段填固定占位值：作曲家 → `佚名`、曲目类型 → `未编目`、乐器 → `未分类`、
 时期 → `未指定`、难度 → `—`、来源 → `本地导入`，页数解析失败则保留原值。
-**作曲家字段原应用不做兜底**，本工程补了 `佚名` 兜底，避免作曲家索引出现空行。
 
-### 未实现的部分
+### 仍为演示值的部分
 
-原应用涉及文件与系统能力的链路不在本次范围内，因为原型无法在浏览器里执行、
-本工程也不引入文件 IO：
+以下几处两侧都还是固定演示数值，不反映真实设备状态：
 
-- PDF 阅读器（`PdfViewerScreen`）、页面渲染与缩放
-- 相册选图 → 合成 PDF、PDF 导入与本地拷贝
-- 分享（`ShareUtil` 的文本拼装与 `Intent.createChooser`）
-- 崩溃日志落盘与「上次运行发生异常」提示
-- 真实缩略图解码（本工程改为程序化绘制，见上）
+- 「我的 → 导入与存储」提示固定 128 MB
+- 「我的 → 清理缓存」只提示「已清理 24 MB」
+- 崩溃提示弹层是硬编码文案（崩溃日志落盘未实现）
 
-以上入口在 UI 上**保留但只给提示文案**，不产生真实副作用。这是刻意的：
-原型要能演示完整信息流，又不引入平台依赖。**请勿把它们当作已实现功能验收**，
-判别标准是「有没有真实的文件/系统调用」而非「界面上有没有这个按钮」。
+---
+
+## 二·六、文件与系统能力
+
+这一层现在是**真实接通**的（不再是「只给提示文案」）：
+
+| 能力 | 实现 |
+| --- | --- |
+| 相册多图 → A4 PDF | `GetMultipleContents` → `ImportUtil.imagesToPdf`：`PdfDocument` 逐页 595×842 pt 居中排版，图片最长边压到 1400 px、`RGB_565` 解码 |
+| 选 PDF 导入 | `GetContent` → `ImportUtil.copyPdfToLocal` 真拷贝到 `files/scores/` |
+| 封面渲染 | `CoverRenderer`（内含 12 MB `LruCache`），见上文 |
+| PDF 阅读器 | `PdfDocState`（`PdfRenderer`）+ `PdfViewerScreen`：翻页、缩放 1–4×、四态 |
+| 分享 | `ShareUtil`：有文件走 `FileProvider` + `ACTION_SEND` + `EXTRA_STREAM`；无文件走纯文本 |
+| 内置乐谱安装 | `PdfAssets`：启动时把 `assets/scores/*.pdf` 拷进 `files/scores/`，并把样例乐谱的 `assetPdf` 解析成真实绝对路径 |
+
+平台类型（`Context` / `Uri` / `Bitmap` / `android.graphics.pdf.*`）全部被
+`expect/actual` 挡在 `commonMain` 之外，接口在 `util/FileBridge.kt`。
+
+> **注意**：仍**没有**崩溃日志落盘与「上次运行发生异常」提示。
+
+### 内置乐谱 PDF：资产与版权处理
+
+样例曲库第一条乐谱声明了 `assetPdf = "moonlight_op27_no2.pdf"`，这份文件来自
+原应用反编译产物，是**第三方版权扫描件**。因此：
+
+- **不入版本库。** 仓库根 `.gitignore` 排除了 `decoded_resources/` 与所有 `*.pdf`，
+  新克隆下来的仓库里没有它。
+- **构建时从本地注入。** `composeApp/build.gradle.kts` 里的 `injectBundledPdf` 任务
+  在 `decoded_resources/assets/scores/*.pdf` **存在时**才复制进 APK 的
+  `assets/scores/`，目录走 `build/injectedAssets/`，不污染工作区。
+  只挂在 **debug 变体**上——release 包不该意外带上版权内容。
+- **缺失是正常状态，不是错误。** `PdfAssets.installMissing` 在
+  `assets.list("scores")` 为空时返回**空映射**而非抛异常，`installBundledScores`
+  原样返回曲库。此时内置乐谱的 `filePath` 保持为 null，封面自动退化为
+  程序化绘制、「打开乐谱」提示「这份乐谱还没有 PDF 文件」——功能不缺，只是少了预览图。
+
+> **一个踩过的坑**：AGP 把 assets 源目录的**根**映射到 APK 的 `assets/`。
+> 若把 `assets.srcDir` 指到 `injectedAssets/scores`，文件会落到
+> `assets/xxx.pdf`，而 `installMissing` 读的是 `assets.list("scores")`，
+> 永远找不到——APK 里明明有文件、运行时却当没有。`srcDir` 必须指向
+> `injectedAssets`（其下再放 `scores/` 子目录）。
+
+「拷完怎么算路径」那半是纯逻辑，住在 `domain/BundledScoreResolver.kt`，
+由 `commonTest` 覆盖（命中的优先级、唯一候选兜底、多份不匹配时返回 null、
+已有 `filePath` 不被覆盖、空安装映射原样返回）。`PdfAssets` 只做转发，
+不重复实现一遍规则。
+
 
 ### 封面版式参数（原为未接线状态）
 
@@ -264,35 +340,53 @@ ScoreAppCompose/
         │   │   ├── LibraryQuery.kt   搜索 / 筛选 / 分组 / 分面计数
         │   │   ├── ComposerNames.kt  姓名切分、字母索引、别名表
         │   │   ├── ScoreMeta.kt      日期格式化、谱单成员解析与归属反查
-        │   │   └── AvatarPalette.kt  头像配色推导
+        │   │   ├── AvatarPalette.kt  头像配色推导
+        │   │   ├── ShareSummary.kt   分享正文拼装（纯字符串，可测）
+        │   │   ├── ReaderBarText.kt  阅读器顶栏文案四态（纯函数，可测）
+        │   │   └── BundledScoreResolver.kt  内置乐谱路径解析（纯函数，可测）
         │   ├── data/
         │   │   └── SampleLibrary.kt  内置样例曲库与表单选项
         │   ├── util/
-        │   │   └── Platform.kt       expect 声明（时间戳），androidMain 提供 actual
+        │   │   ├── Platform.kt       expect 声明（时间戳），androidMain 提供 actual
+        │   │   └── FileBridge.kt     expect 契约：导入 / 分享 / 封面渲染
         │   └── ui/
         │       ├── ScoreAppState.kt  状态中枢 + 编辑草稿
-        │       ├── AppRoot.kt        根骨架（导航 / 弹层 / 提示）
+        │       ├── AppRoot.kt        根骨架（导航 / 弹层 / 提示 / 阅读器宿主）
         │       ├── theme/            设计令牌与主题
-        │       ├── components/       通用组件与程序化缩略图
+        │       ├── components/       通用组件、程序化缩略图、PDF 阅读器
+        │       │   ├── ScoreThumb.kt     封面三态（位图 / 失败提示 / 程序化绘制）
+        │       │   ├── PdfDocState.kt    PdfRenderer 封装 + 四态 ReaderPhase
+        │       │   └── PdfViewerScreen.kt 阅读器界面（翻页 / 缩放）
         │       ├── screens/          五个页面（乐谱库 / 作曲家 / 作品 / 详情 / 我的）
         │       └── sheets/           六个底部弹层（含「更多」）
         ├── commonTest/kotlin/com/example/scoreapp/
         │   ├── LibraryQueryTest.kt   查询 / 筛选 / 分组 / 分面 / 姓名索引
         │   ├── DraftAndMetaTest.kt   保存归一化 / 详情页元信息行
-        │   └── ScoreMetaTest.kt      日期格式化 / 谱单成员解析 / 归属反查
+        │   ├── ScoreMetaTest.kt      日期格式化 / 谱单成员解析 / 归属反查
+        │   ├── FileLinkTest.kt       导入口径 / 分享摘要 / 阅读器四态 / 占位符语义
+        │   └── BundledScoreResolverTest.kt  内置乐谱路径解析（含「没有内置 PDF」降级）
         └── androidMain/
-            ├── AndroidManifest.xml
-            ├── kotlin/.../MainActivity.kt
-            ├── kotlin/.../util/Platform.android.kt
-            └── res/values/           主题与颜色资源
+            ├── AndroidManifest.xml   权限 + FileProvider
+            ├── kotlin/.../MainActivity.kt  选择器 / 权限 / 返回键 / 内置乐谱安装
+            ├── kotlin/.../util/
+            │   ├── Platform.android.kt      nowMillis 的 actual
+            │   ├── ImportUtil.kt            图片→A4 PDF、PDF 拷贝、页数
+            │   ├── ShareUtil.kt             分享意图与文件名
+            │   ├── CoverRenderer.kt         首页渲染 + 12 MB 缓存
+            │   ├── PdfAssets.kt             assets→filesDir 安装（幂等，缺失时降级）
+            │   └── FileBridge.android.kt    bridge 的 actual 实现
+            └── res/
+                ├── values/                  主题与颜色资源
+                └── xml/file_paths.xml       FileProvider 路径白名单
 ```
 
 ### 分层约定
 
 - `model` / `domain` / `data` 是**平台无关**的纯 Kotlin，可单独测试，也可直接复用到其它 target
 - `ui` 只做状态到界面的映射；派生数据（可见列表、分组、分面计数）一律即时计算，避免缓存不一致
-- 平台能力一律走 `expect` / `actual`（当前只有 `nowMillis()` 一处），`commonMain` 中不出现 `java.*`
-- 唯一依赖 Android 的代码是 `androidMain` 下的 `MainActivity`（返回键处理）与 `res/` 资源
+- 平台能力一律走 `expect` / `actual`，`commonMain` 中不出现 `java.*` 与 `android.*`
+  （`Context` / `Uri` / `Bitmap` / `android.graphics.pdf.*` 全被 `FileBridge` 挡住）
+- 唯一依赖 Android 的代码是 `androidMain` 下的 `MainActivity`、`util/*.android.kt` 与 `res/` 资源
 
 ### 关于编译选项
 
@@ -338,10 +432,15 @@ ScoreAppCompose/
 - 相同的设计令牌（颜色、圆角、字号）
 - 相同的样例曲库（42 首乐谱 / 5 个谱单）
 - 相同的筛选 / 分组 / 分面计数语义
-- 相同的程序化缩略图绘制思路
+- 相同的封面三态与缓存口径（首页渲染 / 失败提示 / 程序化兜底）
+- 相同的阅读器四态文案（`ReaderBarText` ↔ `readerSubtitle` / `readerBadge`）
+- 相同的导入占位符语义表与分享摘要拼装
 - 相同的页面与弹层结构、相同的界面文案
 
 原型用于快速确认交互与视觉，本工程用于产出真实安装包。
+
+> **改一方的业务规则或样例数据，必须同步另一方。** 下面两条测试路径就是用来
+> 锁住它们不各自漂移的。
 
 ### 两条实现路径的回归测试
 
@@ -349,14 +448,15 @@ ScoreAppCompose/
 不会各自漂移：
 
 ```bash
-# 原型：102 项断言（最小 DOM 桩加载原型脚本）
+# 原型：200 项断言（最小 DOM 桩加载原型脚本）
 node prototype/regression-test.js
 
 # 工程：业务层单元测试（commonTest，不依赖 Android 运行时）
 cd ScoreAppCompose
-./gradlew :composeApp:testDebugUnitTest      # 报告：composeApp/build/reports/tests/
+./gradlew :composeApp:testDebugUnitTest      # 78 项用例，报告：composeApp/build/reports/tests/
 ```
 
 覆盖范围：搜索匹配、筛选并集/交集、分面计数（同维度不归零 / 跨维度约束）、
 分组排序、姓名切分与 A-Z 索引、头像配色、谱单种子解析、保存时的字段归一化、
-详情页元信息行拼接。
+详情页元信息行拼接、导入占位符语义、分享摘要拼装、阅读器顶栏四态文案、
+封面三态与缓存口径、内置乐谱路径解析与「没有内置 PDF」的降级路径。

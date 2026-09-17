@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.scoreapp.ui.PickKind
 import com.example.scoreapp.ui.ScoreAppState
 import com.example.scoreapp.ui.components.AppIcons
 import com.example.scoreapp.ui.components.SheetGhostButton
@@ -55,8 +56,9 @@ fun ImportSheet(state: ScoreAppState, onDismiss: () -> Unit) {
             title = "从相册选择图片",
             subtitle = "多选图片，自动合并为一份 PDF 乐谱",
             onClick = {
-                // 真实落库：按页数生成一份新乐谱并写入曲库
-                state.importScore(fromAlbum = true, pageCount = 2)
+                // 只记下意图并关上弹层，真正的落库发生在系统选择器返回之后：
+                // 用户可能在中途取消，提前落库会凭空多出一条打不开的乐谱
+                state.beginPick(PickKind.Images)
                 onDismiss()
             },
         )
@@ -65,13 +67,13 @@ fun ImportSheet(state: ScoreAppState, onDismiss: () -> Unit) {
             title = "选择 PDF 文件",
             subtitle = "直接导入已有 PDF 乐谱",
             onClick = {
-                state.importScore(fromAlbum = false)
+                state.beginPick(PickKind.Pdf)
                 onDismiss()
             },
         )
         Text(
             text = "图片导入会按 A4（595 × 842 pt）逐页居中排版，最长边压到 1400 px 后写入 " +
-                "files/scores/import_<标题>_<时间戳>.pdf，并在数据库中登记页数。",
+                "files/scores/import_<标题>_<时间戳>.pdf，并在乐谱库中登记页数。",
             fontSize = 11.5.sp,
             color = Tokens.Text3,
             lineHeight = 17.sp,

@@ -15,13 +15,32 @@ import com.example.scoreapp.model.Score
 import com.example.scoreapp.model.ScoreSet
 import com.example.scoreapp.model.Screen
 import com.example.scoreapp.model.SortMode
+import com.example.scoreapp.util.FileBridge
 import com.example.scoreapp.util.nowMillis
+import com.example.scoreapp.util.toShareInfo
 
 /** 当前展开的底部弹层 */
 enum class SheetKind { None, Filter, Import, Edit, Sort, SetDetail, More }
 
 /** 乐谱库页内的两个子页签 */
 enum class LibraryTab(val label: String) { Scores("乐谱库"), Sets("合集") }
+
+/**
+ * 导入弹层里用户点了哪一条，等待系统选择器返回。
+ *
+ * 选择器是异步的：点击只负责发起请求并记下意图，真正的落库发生在
+ * `MainActivity` 的 launcher 回调里（拿到 uri 之后）。用枚举而不是布尔值，
+ * 是因为两条通道拿到 uri 后要做的事完全不同，必须能分辨。
+ */
+enum class PickKind { None, Images, Pdf }
+
+/**
+ * 打开阅读器的请求。
+ *
+ * 阅读器是一层覆盖视图，不入导航栈；`key` 用来区分「打开了另一份乐谱」——
+ * 复用同一个 key 时 Compose 不会重建，`PdfDocState` 就还握着上一份文档。
+ */
+data class ReaderRequest(val key: Long, val path: String, val title: String)
 
 /**
  * 应用状态中枢。
@@ -32,11 +51,51 @@ enum class LibraryTab(val label: String) { Scores("乐谱库"), Sets("合集") }
  */
 class ScoreAppState {
 
+    // ---------- 平台能力 ----------
+    /**
+     * 文件能力桥。由 `MainActivity` 在 `setContent` 之前注入。
+     *
+     * 为 null 时（例如在普通单元测试里直接构造本类）所有文件相关动作只弹提示、
+     * 不落库——这样业务层测试不必依赖 Android 运行时，而真机上行为完整。
+     */
+    var bridge: FileBridge? = null
+
     // ---------- 数据 ----------
     val allScores: SnapshotStateList<Score> = mutableStateListOf<Score>().apply {
         addAll(SampleLibrary.scores)
     }
     val sets: List<ScoreSet> = SampleLibrary.sets
+
+    /**
+     * 解析随包分发的内置乐谱。
+     *
+     * 启动时必须调用一次：`SampleLibrary` 里的样例乐谱只声明了 `assetPdf`（一个**文件名**），
+     * 而 `File("moonlight_op27_no2.pdf")` 会被解析到进程工作目录下，设备上必然不存在。
+     * 由 [FileBridge.installBundledScores] 把 assets 里的 PDF 拷到 `filesDir/scores/`，
+     * 再把绝对路径写回 `filePath`——之后封面渲染、打开乐谱、分享三条路径才真的走得通。
+     *
+     * 两处刻意的设计：
+     *  - **幂等且可重复调用**（重建、返回前台都可再跑一次），已安装的文件不会重写；
+     *  - 没有内置资源时**静默保持原样**，不提示、不报错。本仓库不把第三方版权乐谱
+     *    纳入版本控制，缺失是正常状态，此时封面退化为程序化绘制，功能不缺、只是少了预览图。
+     *
+     * @return 实际解析出绝对路径的乐谱数量，便于日志与测试断言
+     */
+    fun installBundledScores(): Int {
+        val bridge = bridge ?: return 0
+        val resolved = bridge.installBundledScores(allScores.toList())
+        var changed = 0
+        for (i in resolved.indices) {
+            val next = resolved[i]
+            if (next != allScores[i]) {
+                allScores[i] = next
+                changed++
+            }
+        }
+        // 详情是覆盖视图、持的是乐谱快照，若正开着内置乐谱的详情，一并换成新对象
+        detail?.let { open -> resolved.firstOrNull { it.id == open.id }?.let { detail = it } }
+        return changed
+    }
 
     // ---------- 导航 ----------
     var navStack by mutableStateOf<List<Screen>>(listOf(Screen.Manage))
@@ -136,6 +195,20 @@ class ScoreAppState {
     var toast by mutableStateOf<String?>(null)
         private set
 
+    /**
+     * 待处理的导入选择意图。
+     *
+     * 界面层观察到它不为 [PickKind.None] 时拉起对应的系统选择器，
+     * 随后由 launch 回调调 [consumePick] 复位。这样「想选什么」这件事
+     * 留在状态中枢里，界面层只负责转发，不必自己记一份平行的意图。
+     */
+    var pendingPick by mutableStateOf(PickKind.None)
+        private set
+
+    /** 阅读器覆盖视图的请求；为 null 表示没打开 */
+    var reader by mutableStateOf<ReaderRequest?>(null)
+        private set
+
     // ---------- 派生数据 ----------
     val visibleScores: List<Score>
         get() = LibraryQuery.sorted(
@@ -228,18 +301,88 @@ class ScoreAppState {
     fun openImport() { sheet = SheetKind.Import }
 
     /**
-     * 导入一份乐谱：真正写入曲库，而不是只弹一句提示。
+     * 发起导入：记下意图，关上弹层，等系统选择器返回。
      *
-     * 原先导入路径只弹 toast、不落库，`nextId()` 也因此成了从未被调用的死代码。
-     * 这里补上真实的落库：分配新 id、记录添加时间、按来源生成标题，
-     * 并把 `filePath` 指向导入产物的虚拟路径，使分享/打开 PDF 能拿到文件。
-     *
-     * @param fromAlbum true 表示来自相册图片合成，false 表示直接选中的 PDF 文件
+     * 这里**不再自己伪造一份乐谱**。原先的实现直接按当前时间戳编一个标题就落库，
+     * 结果是「库里多了一条，文件系统里什么都没有」——分享和打开都会失败。
+     * 现在只有真拿到 uri、真写出文件之后才落库，见 [importFromImages] / [importFromPdf]。
      */
-    fun importScore(fromAlbum: Boolean, pageCount: Int = 1) {
-        val stamp = nowMillis()
-        val shortStamp = stamp.toString().takeLast(6)
-        val title = if (fromAlbum) "相册乐谱 · $shortStamp" else "本地乐谱_$shortStamp"
+    fun beginPick(kind: PickKind) {
+        pendingPick = kind
+        sheet = SheetKind.None
+    }
+
+    /** 选择器返回后复位意图 */
+    fun consumePick() { pendingPick = PickKind.None }
+
+    /**
+     * 相册图片 → 合成 A4 PDF → 落库。
+     *
+     * 跳过数不为 0 时，成功提示后面追加一句括号说明（与原应用一致）：
+     * 用户选了 5 张、只进来 3 页，必须让他知道另外 2 张去哪了。
+     */
+    fun importFromImages(uris: List<String>) {
+        if (uris.isEmpty()) return
+        val bridge = bridge ?: run {
+            showToast("当前环境不支持导入")
+            return
+        }
+
+        val result = bridge.imagesToPdf(uris)
+        val path = result.path
+        if (path == null) {
+            showToast(result.error ?: "PDF 生成失败")
+            return
+        }
+
+        addImported(
+            title = "相册乐谱 · ${result.pages} 页",
+            pages = result.pages,
+            filePath = path,
+        )
+
+        var message = "已生成 PDF 并加入乐谱库：${result.pages} 页"
+        result.error?.let { message += "（$it）" }
+        showToast(message)
+    }
+
+    /**
+     * 选中 PDF → 拷进本地目录 → 落库。
+     *
+     * 拷贝而不是直接引用 `content://`：外部 uri 的读权限只在本次会话有效，
+     * 不拷进来的话，下次启动这份乐谱就打不开了。
+     */
+    fun importFromPdf(uri: String) {
+        val bridge = bridge ?: run {
+            showToast("当前环境不支持导入")
+            return
+        }
+
+        val title = bridge.pdfTitle(uri)
+        val local = bridge.copyPdfToLocal(uri, title)
+        if (local == null) {
+            showToast("导入失败，无法读取所选文件")
+            return
+        }
+
+        addImported(
+            title = title,
+            pages = bridge.pdfPageCount(local),
+            filePath = local,
+        )
+        showToast("已导入 PDF：$title")
+    }
+
+    /**
+     * 把导入产物登记进曲库。
+     *
+     * 元数据沿用反编译产物里那两个调用点的口径：作曲家「佚名」、
+     * 类型「未编目」、乐器「未分类」、时期「未指定」、难度「—」、来源「本地导入」。
+     *
+     * 注意 `filePath` 写的是**真实绝对路径**而不是虚拟串；标题也不再由时间戳拼装
+     * （相册路径用页数、PDF 路径用文件名），因此库里看到的信息是可解释的。
+     */
+    private fun addImported(title: String, pages: Int, filePath: String) {
         val score = Score(
             id = nextId(),
             title = title,
@@ -248,17 +391,18 @@ class ScoreAppState {
             instrument = "未分类",
             period = "未指定",
             level = "—",
-            source = if (fromAlbum) "相册导入" else "本地导入",
-            pages = if (pageCount > 0) pageCount else 1,
-            dateAdded = stamp,
-            filePath = "files/scores/import_${title}_$stamp.pdf",
+            source = "本地导入",
+            pages = pages,
+            dateAdded = nowMillis(),
+            // 相册来源没有 assetPdf，PDF 来源也统一走 filePath——
+            // 两者语义等价（都是「本地真实文件」），分两处存会带来不一致的风险
+            filePath = filePath,
             thumbSeed = (title.hashCode() and 0x7fffffff) % 997,
-            thumbRows = if (pageCount >= 6) 6 else if (pageCount <= 3) 3 else 5,
+            thumbRows = if (pages >= 6) 6 else if (pages <= 3) 3 else 5,
         )
         // 新导入的乐谱置顶，符合「最近添加」的直觉
         allScores.add(0, score)
         sheet = SheetKind.None
-        showToast("已加入乐谱库：$title")
     }
 
     fun openSort() { sheet = SheetKind.Sort }
@@ -358,18 +502,39 @@ class ScoreAppState {
     }
 
     fun share(score: Score) {
+        val bridge = bridge ?: run {
+            showToast("当前环境不支持分享")
+            return
+        }
+        val outcome = bridge.share(score.toShareInfo())
         showToast(
-            if (score.hasPdf) "已分享 PDF：${score.displayFile}"
-            else "这份乐谱还没有 PDF 文件，已分享曲谱信息",
+            when {
+                !outcome.dispatched -> "没有可用的分享方式"
+                // 带着附件分享，还是只发出了一段曲谱信息——两者对用户的含义不同
+                outcome.hadFile -> "已分享 PDF：${score.displayFile}"
+                else -> "这份乐谱还没有 PDF 文件，已分享曲谱信息"
+            },
         )
     }
 
+    /**
+     * 打开乐谱。
+     *
+     * 没有文件时不进入阅读器，只提示去导入——空阅读器对用户没有任何信息量。
+     * 有文件则挂上覆盖视图，由 `AppRoot` 渲染 [com.example.scoreapp.ui.components.PdfViewerScreen]。
+     */
     fun openPdf(score: Score) {
-        showToast(
-            if (score.hasPdf) "打开乐谱：${score.displayFile}"
-            else "这份乐谱还没有 PDF 文件，可在列表里导入",
-        )
+        val path = score.filePath?.takeIf { it.isNotBlank() }
+            ?: score.assetPdf?.takeIf { it.isNotBlank() }
+        if (path == null) {
+            showToast("这份乐谱还没有 PDF 文件，可在列表里导入")
+            return
+        }
+        // 每次打开都换一个 key，确保切换乐谱时阅读器会重建文档状态
+        reader = ReaderRequest(key = score.id, path = path, title = score.title)
     }
+
+    fun closePdf() { reader = null }
 
     /**
      * 打开某位作曲家的作品页。
@@ -491,9 +656,19 @@ class ScoreDraft(
         )
 
         // ---------- 保存时的字段归一化 ----------
-        // 原应用在保存回调里对每个空字段填入固定的占位取值，
-        // 保证筛选分面不会因为「空串」裂成额外的桶。
-        // composer 原应用不做兜底，这里补「佚名」是为了避免作曲家索引出现空行。
+        //
+        // 每个字段的兜底取值必须与它的**语义**对应，不能错位：
+        //   作曲家 → 佚名      作者未知
+        //   曲目类型 → 未编目  还没归类到具体体裁
+        //   乐器 → 未分类      还没指定演奏编制
+        //   时期 → 未指定      还没判断风格年代
+        //   难度 → —           「无」的占位符（不是一种难度）
+        //   来源 → 本地导入    从本机文件进来的
+        //
+        // 原应用的导入回调把这一串整体错位了一格：作曲家位填了「未编目」，
+        // 之后每个值依次顺移，最后两位都落成「—」。结果是一份导入进来的乐谱
+        // 作者叫「未编目」、体裁叫「未分类」，筛选分面里出现了语义错乱的分组。
+        // 这里按语义逐项归位，并由单元测试锁住。
 
         internal fun normalizeComposer(v: String) = v.trim().ifBlank { "佚名" }
         internal fun normalizeType(v: String) = v.trim().ifBlank { "未编目" }

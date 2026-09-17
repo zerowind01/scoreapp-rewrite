@@ -27,8 +27,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import com.example.scoreapp.model.RootTab
 import com.example.scoreapp.model.Screen
 import com.example.scoreapp.ui.components.AppIcons
+import com.example.scoreapp.ui.components.PdfViewerScreen
 import com.example.scoreapp.ui.screens.ComposersScreen
 import com.example.scoreapp.ui.screens.DetailScreen
 import com.example.scoreapp.ui.screens.ManageScreen
@@ -60,11 +64,18 @@ import kotlinx.coroutines.delay
 /**
  * 应用根组件。
  *
- * 负责整体骨架：底部导航、悬浮按钮、弹层分发与轻提示；
+ * 负责整体骨架：底部导航、悬浮按钮、弹层分发、阅读器覆盖层与轻提示；
  * 具体页面内容由各 Screen 自行渲染。
+ *
+ * @param onPickImages 请求系统相册多选；由平台侧注入（Android 才能拉起选择器）
+ * @param onPickPdf 请求系统文件选择器单选 PDF
  */
 @Composable
-fun AppRoot(state: ScoreAppState) {
+fun AppRoot(
+    state: ScoreAppState,
+    onPickImages: () -> Unit = {},
+    onPickPdf: () -> Unit = {},
+) {
     ScoreAppTheme {
         Box(Modifier.fillMaxSize().background(Tokens.BgPage)) {
             // 底部导航不再是 Scaffold 的 bottomBar（那会贴底通栏并占去内容高度），
@@ -118,9 +129,40 @@ fun AppRoot(state: ScoreAppState) {
                 }
             }
 
+            // 导入意图 → 拉起系统选择器。放在 effect 里而不是点击回调里，
+            // 是因为选择器必须等弹层收起之后再拉起：先关弹层再 launch，
+            // 否则某些机型上会把选择器压在弹层底下。
+            LaunchedEffect(state.pendingPick) {
+                when (state.pendingPick) {
+                    PickKind.Images -> onPickImages()
+                    PickKind.Pdf -> onPickPdf()
+                    PickKind.None -> Unit
+                }
+            }
+
             SheetHost(state)
+            ReaderHost(state)
             ToastHost(state)
         }
+    }
+}
+
+/**
+ * 阅读器覆盖层。
+ *
+ * 单独一层而不是并入 `SheetHost`：阅读器是全屏视图，不是底部弹层，
+ * 两者的进出场与返回键语义都不一样。
+ */
+@Composable
+private fun ReaderHost(state: ScoreAppState) {
+    val request = state.reader ?: return
+    // key 随打开对象变化：换一份乐谱必须重建文档状态，否则会读到上一份的内容
+    key(request.key) {
+        PdfViewerScreen(
+            path = request.path,
+            title = request.title,
+            onBack = { state.closePdf() },
+        )
     }
 }
 
@@ -134,7 +176,7 @@ fun AppRoot(state: ScoreAppState) {
 private val BottomNavClearance = 92.dp
 
 /** 导台高度（dp）：内容 44 + 上下内边距各 4，比常规底栏更"薄"。 */
-private val BottomNavHeight = 52.dp
+private val BottomNavHeight = 54.dp
 
 /**
  * 选中项焦点气泡的尺寸（dp）。
@@ -167,11 +209,16 @@ private fun BottomNav(state: ScoreAppState, modifier: Modifier = Modifier) {
     ) {
         RootTab.entries.forEach { tab ->
             val selected = state.activeTab == tab
+            val interaction = remember { MutableInteractionSource() }
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .clickable { state.selectTab(tab) },
+                    // indication = null：默认的 ripple 在被裁进矩形边界后
+                    // 看起来就是一块长方形高亮，观感脏。选中反馈交给白色气泡。
+                    .clickable(interactionSource = interaction, indication = null) {
+                        state.selectTab(tab)
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 // 选中项：白色气泡浮在玻璃之上，对应参考图里那颗高亮圆底。
@@ -220,7 +267,9 @@ private fun BottomNav(state: ScoreAppState, modifier: Modifier = Modifier) {
  * 让底下内容隐约透出，达到等价的玻璃观感，且在各平台渲染开销可控。
  */
 private fun Modifier.glassSurface(): Modifier = this
-    .background(Tokens.Surface.copy(alpha = 0.62f))
+    // 0.82 而非更「通透」的取值：太透时列表文字会从导台底下穿上来，
+    // 与底部图标叠在一起难以阅读（原型已同步调到 .82）
+    .background(Tokens.Surface.copy(alpha = 0.82f))
 
 @Composable
 private fun ImportFab(onClick: () -> Unit, modifier: Modifier = Modifier) {

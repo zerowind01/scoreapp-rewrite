@@ -1,17 +1,34 @@
 package com.example.scoreapp.ui.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -19,17 +36,30 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.scoreapp.model.Score
 import com.example.scoreapp.ui.theme.Tokens
+import com.example.scoreapp.util.loadCoverBitmap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.max
 import kotlin.math.min
 
 /**
- * 乐谱缩略图。
+ * 乐谱封面 / 缩略图。
  *
- * 不依赖任何图片资源：按 [Score.thumbSeed] 生成确定性随机数，
- * 在 Canvas 上直接绘制「雕版乐谱页」或「唱片封面」两种形态。
- * 同一份乐谱在任何设备、任何尺寸下都会得到同一张图。
+ * 三条分支，按优先级：
+ *  1. **真实首页** —— 这份乐谱有可读的 PDF 时，渲染第一页当封面。
+ *     这是主路径：用户看到的应该是自己的谱子，而不是一张示意图。
+ *  2. **加载失败** —— 有路径但渲不出来（文件被删、损坏、不是 PDF），
+ *     叠一层「预览加载失败」，并**保留**程序化底图。
+ *     不画真封面是对的（画不出来），但也不能留空——空白会被误读成「还在加载」。
+ *  3. **程序化绘制** —— 没有路径时按 [Score.thumbSeed] 生成确定性随机数，
+ *     在 Canvas 上画「雕版乐谱页」或「唱片封面」。同一份乐谱在任何设备、
+ *     任何尺寸下都会得到同一张图。
+ *
+ * 分支判定顺序很重要：程序化绘制是**没有真文件时的兜底**，不是主路径。
  */
 @Composable
 fun ScoreThumb(
@@ -38,20 +68,89 @@ fun ScoreThumb(
     dense: Boolean = false,
 ) {
     val measurer = rememberTextMeasurer()
+    val path = remember(score.id, score.filePath, score.assetPdf) {
+        score.filePath?.takeIf { it.isNotBlank() } ?: score.assetPdf?.takeIf { it.isNotBlank() }
+    }
+
+    // 用 produceState 承载「还没结果」这第三种状态：loading 期间 bmp 为 null 且
+    // failed 为 false，此时只画底图，不叠提示——否则页面刚打开就会闪一下失败提示
+    val cover by produceState<CoverLoad>(initialValue = CoverLoad.Idle, path) {
+        value = if (path == null) {
+            CoverLoad.Idle
+        } else {
+            val bitmap = withContext(Dispatchers.IO) { loadCoverBitmap(path) }
+            if (bitmap != null) CoverLoad.Loaded(bitmap) else CoverLoad.Failed
+        }
+    }
+
+    val loadedCover = (cover as? CoverLoad.Loaded)?.bitmap
+
     Box(modifier) {
-        Canvas(Modifier.fillMaxSize()) {
-            if (score.thumbKind == Score.THUMB_COVER) {
-                drawCover(score, measurer)
-            } else {
-                drawEngrave(score, dense)
+        if (loadedCover == null) {
+            Canvas(Modifier.fillMaxSize()) {
+                if (score.thumbKind == Score.THUMB_COVER) {
+                    drawCover(score, measurer)
+                } else {
+                    drawEngrave(score, dense)
+                }
+                // 纸面内描边
+                drawRect(
+                    color = Tokens.Ink.copy(alpha = 0.07f),
+                    size = Size(size.width, size.height),
+                    style = Stroke(width = 1f),
+                )
             }
-            // 纸面内描边
-            drawRect(
-                color = Tokens.Ink.copy(alpha = 0.07f),
-                size = Size(size.width, size.height),
-                style = Stroke(width = 1f),
+        } else {
+            Image(
+                bitmap = loadedCover,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
             )
         }
+
+        if (cover is CoverLoad.Failed) {
+            LoadFailedHint(Modifier.align(Alignment.BottomCenter))
+        }
+    }
+}
+
+/** 封面加载进度：Idle 表示没有可加载的路径 */
+private sealed interface CoverLoad {
+    data object Idle : CoverLoad
+    data class Loaded(val bitmap: ImageBitmap) : CoverLoad
+    data object Failed : CoverLoad
+}
+
+/**
+ * 「预览加载失败」提示条。
+ *
+ * 贴在底边而不是铺满整张：底图仍然可见，用户能从缩略图认出是哪份乐谱，
+ * 提示只负责说明「这里本该是真实封面」。铺满会把已识别信息一起盖掉。
+ */
+@Composable
+private fun LoadFailedHint(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Color(0xFFEFEFF2))
+            .padding(horizontal = 6.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = AppIcons.FileDoc,
+            contentDescription = null,
+            tint = Color(0xFFB4B4BC),
+            modifier = Modifier.size(11.dp),
+        )
+        Spacer(Modifier.width(3.dp))
+        Text(
+            text = "预览加载失败",
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Medium,
+            color = Color(0xFF8A8A93),
+        )
     }
 }
 

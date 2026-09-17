@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    FileProvider 可对外暴露的路径白名单。
+    导入产物统一落在 filesDir/scores/，因此 files-path 的 path 必须是 "scores/"，
+    与 ImportUtil.ASSET_DIR 逐字对应；改一处必须同步另一处。
+
+    root-path 是为「分享被拷到缓存目录的临时文件」留的余量，当前代码路径未用到，
+    保留与移除都不影响分享功能——保留是因为它来自原应用的同一份配置，
+    删掉属于无收益的偏离。
+-->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <files-path
+        name="scores"
+        path="scores/" />
+    <root-path
+        name="root"
+        path="." />
+</paths>
