@@ -17,6 +17,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import com.example.scoreapp.model.Score
 import com.example.scoreapp.ui.theme.Tokens
 import kotlin.math.max
@@ -186,48 +188,84 @@ private fun DrawScope.drawCover(score: Score, measurer: TextMeasurer) {
     val c2 = parseHex(score.coverC2) ?: Color(0xFF5B7F96)
     drawRect(brush = Brush.linearGradient(colors = listOf(c1, c2), start = Offset.Zero, end = Offset(w, h)))
 
-    // 装饰同心弧
-    val arcStroke = Stroke(width = max(1f, w * 0.012f))
-    for (i in 0..2) {
-        val radius = w * (0.18f + i * 0.11f)
-        drawArc(
-            color = Color.White.copy(alpha = 0.16f),
-            startAngle = 194f,
-            sweepAngle = 151f,
-            useCenter = false,
-            topLeft = Offset(w * 0.5f - radius, h * 0.46f - radius),
-            size = Size(radius * 2f, radius * 2f),
-            style = arcStroke,
-        )
-    }
-
+    // 版式参数全部来自 Score 模型，而非写死的百分比。
+    // 这些字段（coverTx/coverTy/coverTSize/coverTGap/coverSubX/coverSubY…）此前在
+    // 两套实现里都只定义、从不读取，导致样张里调好的排版完全没生效。
+    // 坐标语义：样张数据中 coverTx=15 与 coverSubX=15 并存、subY=120 已接近画布底边
+    // （参考系 100），可见是**左对齐**语义——15 指左边距而非中心点。
+    val tx = score.coverTx
+    val ty = score.coverTy
+    val tGap = score.coverTGap
+    val subX = score.coverSubX
+    // 样张 subY=120 超出 100 的参考画布（换算后会落到画布下方被裁掉），夹到参考系内
+    val subY = min(score.coverSubY, 96f)
+    val kx = w / 100f
+    val ky = h / 100f
     val textColor = parseHex(score.coverTColor) ?: Color.White
     val baseSize = max(9f, w * (score.coverTSize / 100f) * 0.62f)
+    val left = tx * kx
+    // 左边界 + 右侧安全边距；超出可用宽度时缩字并截断，避免长标题溢出画布
+    val usable = max(10f, w - left * 2f)
 
-    fun drawCentered(
+    /** 装饰同心弧；coverDeco = "none" 时跳过 */
+    if (score.coverDeco != "none") {
+        val arcStroke = Stroke(width = max(1f, w * 0.012f))
+        for (i in 0..2) {
+            val radius = w * (0.18f + i * 0.11f)
+            drawArc(
+                color = Color.White.copy(alpha = 0.16f),
+                startAngle = 194f,
+                sweepAngle = 151f,
+                useCenter = false,
+                topLeft = Offset(w * 0.5f - radius, h * 0.46f - radius),
+                size = Size(radius * 2f, radius * 2f),
+                style = arcStroke,
+            )
+        }
+    }
+
+    /**
+     * 以左边界为锚点绘制单行文本：必要时缩字号（最多缩到 68%），
+     * 仍超宽则按省略号截断。截断依赖平台单行省略能力，无法逐字符试探。
+     */
+    fun drawAligned(
         text: String?,
-        centerY: Float,
-        sizePx: Float,
+        x: Float,
+        y: Float,
+        wantSize: Float,
         weight: FontWeight,
         alpha: Float = 1f,
+        alignRight: Boolean = false,
     ) {
         if (text.isNullOrBlank()) return
-        val layout = measurer.measure(
+        // 先按目标字号量一次，超宽则缩到可用宽度上限
+        var size = wantSize
+        var layout = measurer.measure(
             text = text,
             style = TextStyle(
                 color = textColor.copy(alpha = alpha),
-                fontSize = sizePx.toSp(),
+                fontSize = size.toSp(),
                 fontWeight = weight,
             ),
             maxLines = 1,
         )
-        drawText(
-            textLayoutResult = layout,
-            topLeft = Offset(
-                (w - layout.size.width) / 2f,
-                centerY - layout.size.height / 2f,
-            ),
-        )
+        if (layout.size.width > usable && size > wantSize * 0.68f) {
+            size = max(wantSize * 0.68f, size * (usable / layout.size.width))
+            layout = measurer.measure(
+                text = text,
+                style = TextStyle(
+                    color = textColor.copy(alpha = alpha),
+                    fontSize = size.toSp(),
+                    fontWeight = weight,
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                constraints = Constraints(maxWidth = usable.toInt().coerceAtLeast(1)),
+            )
+        }
+        // y 传入的是基线位置，转为文本块顶边；右对齐时从右边界反推左起点
+        val xPos = if (alignRight) w - x - layout.size.width else x
+        drawText(textLayoutResult = layout, topLeft = Offset(xPos, y - layout.size.height * 0.78f))
     }
 
     // 封面下部的色带
@@ -239,12 +277,28 @@ private fun DrawScope.drawCover(score: Score, measurer: TextMeasurer) {
         )
     }
 
-    drawCentered(score.coverTitle, h * 0.44f, baseSize, FontWeight.Bold)
-    drawCentered(score.coverEn, h * 0.44f + baseSize * 0.95f, baseSize * 0.42f, FontWeight.Medium, alpha = 0.72f)
+    drawAligned(score.coverTitle, left, ty * ky, baseSize, FontWeight.Bold)
+    drawAligned(score.coverEn, left, ty * ky + tGap * ky + baseSize * 0.32f, baseSize * 0.42f, FontWeight.Medium, alpha = 0.72f)
     if (!score.coverBarText.isNullOrBlank()) {
-        drawCentered(score.coverBarText, h * 0.80f + h * 0.0375f, baseSize * 0.40f, FontWeight.SemiBold)
+        // 色带满宽，不适用文本块的 left/usable，按画布居中并限制在 90% 宽内
+        drawAligned(
+            text = score.coverBarText,
+            x = 0f,
+            y = h * 0.80f + h * 0.052f,
+            wantSize = baseSize * 0.40f,
+            weight = FontWeight.SemiBold,
+        )
     }
-    drawCentered(score.coverSub, h * 0.90f, baseSize * 0.40f, FontWeight.Medium, alpha = 0.80f)
+    // 底部说明：coverFooter 为真时贴右边（作为版式页脚），否则与文本块左对齐
+    drawAligned(
+        text = score.coverSub,
+        x = if (score.coverFooter) left else subX * kx,
+        y = subY * ky,
+        wantSize = baseSize * 0.40f,
+        weight = FontWeight.Medium,
+        alpha = 0.80f,
+        alignRight = score.coverFooter,
+    )
 }
 
 /** 解析 `#rrggbb`；非法输入返回 null 由调用方兜底 */

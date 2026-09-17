@@ -4,7 +4,20 @@ package com.example.scoreapp.model
 enum class FilterDim(val key: String, val label: String) {
     Composer("composer", "按作曲家"),
     Type("type", "按曲目类型"),
-    Instrument("instrument", "按乐器"),
+    Instrument("instrument", "按乐器");
+
+    /**
+     * 维度名（去掉「按」前缀后的名词形式）。
+     *
+     * [label] 是给筛选控件用的动宾短语（「按作曲家」），拼进提示语会变成
+     * 「已筛选：按作曲家 · 巴赫」这种别扭说法，故单列一个名词形式。
+     */
+    val noun: String
+        get() = when (this) {
+            Composer -> "作曲家"
+            Type -> "曲目类型"
+            Instrument -> "乐器"
+        }
 }
 
 /**
@@ -48,6 +61,13 @@ data class FilterState(
 
     companion object {
         val EMPTY = FilterState()
+
+        /** 构造「只按某个维度的一个取值」筛选的状态 */
+        fun forValue(dim: FilterDim, value: String): FilterState = when (dim) {
+            FilterDim.Composer -> FilterState(composer = setOf(value))
+            FilterDim.Type -> FilterState(type = setOf(value))
+            FilterDim.Instrument -> FilterState(instrument = setOf(value))
+        }
     }
 }
 

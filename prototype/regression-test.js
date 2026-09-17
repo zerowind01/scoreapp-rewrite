@@ -90,7 +90,32 @@ const exportTail = `
   setMembers, setsOfScore, scoreById,
   SURNAME_INITIAL, ALIAS,
   normalizeDraft, metaLine, fmtDate, importScore,
+  DIM_LABEL, topValue,
+  probeCoverDraw,
 };
+
+/**
+ * 用替身 Canvas 上下文捕获 drawCover 的绘制调用，供回归断言检查。
+ * 返回记录到的文本（含坐标/字号/对齐）与装饰弧数量。
+ */
+function probeCoverDraw(score){
+  const W = 240, H = 310;         // 与原型实际缩略图 canvas 像素尺寸一致
+  const texts = [], arcs = [];
+  const ctx = {
+    canvas:{width:W, height:H},
+    font:"", textAlign:"", fillStyle:"", strokeStyle:"", lineWidth:1, globalAlpha:1,
+    clearRect(){}, fillRect(){}, strokeRect(){}, beginPath(){}, stroke(){}, moveTo(){}, lineTo(){},
+    save(){}, restore(){}, translate(){}, scale(){}, closePath(){}, arc(x,y,r,s,e){ arcs.push({x,y,r,s,e}); },
+    createLinearGradient(){ return { addColorStop(){} }; },
+    fillText(t,x,y){ texts.push({ text:t, args:[t,x,y], size:fontSize(this.font), align:this.textAlign }); },
+    measureText(t){ return { width: fontWidth(t, fontSize(this.font)) }; },
+  };
+  const fontSize = (f) => { const m=/(\\d+(?:\\.\\d+)?)px/.exec(f||""); return m ? parseFloat(m[1]) : 0; };
+  // 粗估文本宽度：CJK 按 1em、其余按 0.55em，够用于溢出断言
+  const fontWidth = (t, s) => [...t].reduce((n,ch)=> n + (ch.charCodeAt(0) > 0x2E80 ? s : s*0.55), 0);
+  drawCover(ctx, W, H, score);
+  return { w:W, h:H, kx:W/100, ky:H/100, texts, arcs:arcs.length };
+}
 `;
 
 new Function(
@@ -367,6 +392,70 @@ eq("相册导入同样落库", T.SCORES.length, beforeAlbum + 1);
 eq("相册导入来源标记正确", T.SCORES[0].source, "相册导入");
 eq("相册导入页数传入生效", T.SCORES[0].pages, 6);
 ok("导入不会破坏谱单归属反查", T.SCORES.every((s) => T.setsOfScore(s).every((set) => T.setMembers(set).includes(s))));
+
+// ---------------- 16. 「我的」页元数据跳转 ----------------
+// 这三行原先不可点（原型无 .link）/ 空回调（Compose onClick = {}），
+// 点击后应跳到乐谱库并带上该维度筛选。
+ok("作曲家维度有中文名词标签", T.DIM_LABEL.composer === "作曲家");
+ok("曲目类型维度有中文名词标签", T.DIM_LABEL.type === "曲目类型");
+ok("乐器维度有中文名词标签", T.DIM_LABEL.instrument === "乐器");
+
+for (const dim of ["type", "instrument"]) {
+  const top = T.topValue(dim);
+  ok(`topValue(${dim}) 返回非空取值`, typeof top === "string" && top.length > 0);
+  // 最高频取值必须真的在曲库里存在，且出现次数不少于任何其他取值
+  const counts = {};
+  for (const s of T.SCORES) counts[s[dim]] = (counts[s[dim]] || 0) + 1;
+  const maxN = Math.max(...Object.values(counts));
+  eq(`topValue(${dim}) 确为最高频取值`, counts[top], maxN);
+}
+
+// 跳转后可见列表应等于「仅按该取值筛选」的结果
+for (const dim of ["type", "instrument"]) {
+  const top = T.topValue(dim);
+  T.state.filters = { composer: new Set(), type: new Set(), instrument: new Set() };
+  T.state.filters[dim] = new Set([top]);
+  eq(`按 ${dim}=${top} 筛选后条数正确`,
+    T.visibleScores().length,
+    T.SCORES.filter((s) => s[dim] === top).length);
+}
+// 复位，避免影响后续断言
+T.state.filters = { composer: new Set(), type: new Set(), instrument: new Set() };
+
+// ---------------- 17. 封面版式参数真正生效 ----------------
+// 这组字段（coverTx/coverTy/coverTSize/coverTGap/coverSubX/coverSubY/coverDeco/coverFooter）
+// 曾在两套实现里都只定义、不读取，导致样张里调好的排版完全没生效。
+// 这里通过抓取 Canvas 的绘制调用来验证参数确实驱动了绘制。
+{
+  const cover = T.SCORES.find((s) => s.thumbKind === "cover");
+  ok("存在封面型样张乐谱", !!cover);
+  const draw = T.probeCoverDraw(cover);
+  ok("封面绘制读取了 coverTx（文本左边界）", draw.texts.some((t) => t.args[1] === cover.coverTx * draw.kx));
+  ok("封面绘制读取了 coverTy（标题基线）", draw.texts.some((t) => t.args[2] === cover.coverTy * draw.ky));
+  // 字号应随 coverTSize 变化：把参数调大，绘制字号必须跟着变大
+  const bigger = T.probeCoverDraw({ ...cover, coverTSize: cover.coverTSize * 2 });
+  const sizeOf = (d) => Math.max(...d.texts.map((t) => t.size));
+  ok("coverTSize 变大则绘制字号变大", sizeOf(bigger) > sizeOf(draw));
+  // coverDeco="none" 应跳过装饰弧
+  const noDeco = T.probeCoverDraw({ ...cover, coverDeco: "none" });
+  ok("coverDeco='none' 时不绘制装饰弧", noDeco.arcs === 0);
+  ok("默认会绘制装饰弧", draw.arcs > 0);
+  // coverFooter 决定底部说明的对齐方式
+  const footerOn = T.probeCoverDraw({ ...cover, coverFooter: true });
+  const footerOff = T.probeCoverDraw({ ...cover, coverFooter: false });
+  const alignsOf = (d) => d.texts.map((t) => t.align);
+  ok("coverFooter=true 时底部说明右对齐", alignsOf(footerOn).includes("right"));
+  ok("coverFooter=false 时底部说明左对齐", alignsOf(footerOff).includes("left"));
+  // subY 超出参考系时应被夹回，避免底部说明掉出画布
+  const bigSub = T.probeCoverDraw({ ...cover, coverSubY: 999 });
+  const subTexts = bigSub.texts.filter((t) => t.text === cover.coverSub);
+  ok("coverSubY 超界时被夹回画布内", subTexts.length > 0 && subTexts.every((t) => t.args[2] <= bigSub.h));
+  // 任何文本都不应画出画布之外
+  ok("封面文本均未溢出画布", draw.texts.every((t) => {
+    const [x, y] = [t.args[1], t.args[2]];
+    return x >= -0.5 && x <= draw.w + 0.5 && y >= -0.5 && y <= draw.h + 0.5;
+  }), JSON.stringify(draw.texts.map((t) => [t.args[1], t.args[2]])));
+}
 
 // ---------------- 汇总 ----------------
 console.log(`\n通过 ${pass} 项，失败 ${fails.length} 项`);

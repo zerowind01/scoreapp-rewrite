@@ -686,40 +686,101 @@ function drawCover(c, w, h, score){
   g.addColorStop(0, c1); g.addColorStop(1, c2);
   c.fillStyle = g; c.fillRect(0,0,w,h);
 
-  // 装饰：同心弧
-  c.strokeStyle = "rgba(255,255,255,.16)";
-  c.lineWidth = Math.max(1, w*0.012);
-  for(let i=0;i<3;i++){
-    c.beginPath();
-    c.arc(w*0.5, h*0.46, w*(0.18 + i*0.11), Math.PI*1.08, Math.PI*1.92);
-    c.stroke();
-  }
-
+  /*
+   * 版式参数全部来自 Score 模型，而非写死的百分比。
+   * 这些字段在模型与样张数据里一直存在（coverTx/coverTy/coverTGap/coverSubX/coverSubY…），
+   * 但此前绘制时被忽略、改用 h*0.44 之类的常量，导致样张里精心调过的排版根本没生效。
+   * 这里改为读取真实参数，并保留原常量作为缺省值，避免旧数据缺字段时版式跳变。
+   *
+   * 关于坐标语义：样张数据里 coverTx=15 配 subX=15，而 subY=120 已接近画布底边（参考系 100）。
+   * 可见这组参数是**左对齐**语义（15 指左边距），不是中心点——若按中心点解释，
+   * tx 取 15（画布 15% 处）会让长标题左半截跑出画布。因此：
+   *   coverTx  → 文本块左边界（标题与英文副题按左对齐排版）
+   *   coverSubX→ 底部说明左边界（coverFooter 为真时按右对齐贴到 subX）
+   * 这样两个 15 才互相自洽，且标题不会再被裁切。
+   */
+  const tx = score.coverTx != null ? score.coverTx : 15;          // 文本块左边界
+  const ty = score.coverTy != null ? score.coverTy : 24;          // 标题基线 Y
+  const tSize = score.coverTSize != null ? score.coverTSize : 13; // 字号基数
+  const tGap = score.coverTGap != null ? score.coverTGap : 15;    // 副标题与标题的间距
+  const subX = score.coverSubX != null ? score.coverSubX : 15;    // 底部说明 X
+  // 样张数据里 subY=120 超出了 100 的参考画布（换算后会落到画布下方、被裁掉），
+  // 因此这里夹到参考系内：96 即距底 4%，仍在色条（80~87.5）下方的可视区内。
+  const subYraw = score.coverSubY != null ? score.coverSubY : 120;
+  const subY = Math.min(subYraw, 96);
+  // 上述参数基于「宽高各 100 的参考画布」标定，因此按实际尺寸等比换算。旧数据的
+  // 百分比写法（如 h*0.90）在 100 高下等价于 90，换算后与之一致，不会出现版式突变。
+  const kx = w / 100, ky = h / 100;      // 横向 / 纵向缩放系数
+  // 字号只跟横向走：用 ky 会让窄卡片的字缩到看不清
+  const size = Math.max(9, tSize * kx * 0.62);
   const tc = score.coverTColor || "#ffffff";
-  const size = Math.max(9, w * ((score.coverTSize || 15)/100) * 0.62);
-  c.fillStyle = tc;
-  c.textAlign = "center";
-  c.font = `700 ${size}px ${FONT_STACK}`;
-  c.fillText(score.coverTitle || "", w*0.5, h*0.44);
+  // 左边界 + 右侧安全边距，超出可用宽度时逐级缩字；缩到下限仍放不下才截断，
+  // 避免长标题直接溢出画布（此前 "PIANO WORKS · UR TEXT" 左端被裁掉一截）。
+  const left = tx * kx;
+  const usable = Math.max(10, w - left * 2);
 
-  if(score.coverEn){
-    c.font = `500 ${Math.max(6,size*0.42)}px ${FONT_STACK}`;
-    c.globalAlpha = 0.72;
-    c.fillText(score.coverEn, w*0.5, h*0.44 + size*0.95);
+  /** 以左边界为锚点绘制文本：必要时缩字号，仍超宽则按省略号截断 */
+  function drawLeft(text, x, y, wantSize, weight, alpha){
+    if(!text) return;
+    c.globalAlpha = alpha == null ? 1 : alpha;
+    let s = wantSize;
+    c.font = `${weight} ${s}px ${FONT_STACK}`;
+    // 最多缩到原字号的 68%：再小就基本不可读了，宁可截断
+    while(c.measureText(text).width > usable && s > wantSize * 0.68){
+      s *= 0.94;
+      c.font = `${weight} ${s}px ${FONT_STACK}`;
+    }
+    let t = text;
+    if(c.measureText(t).width > usable){
+      while(t.length > 1 && c.measureText(t + "…").width > usable) t = t.slice(0, -1);
+      t += "…";
+    }
+    c.fillText(t, x, y);
     c.globalAlpha = 1;
   }
+
+  // 装饰：默认同心弧；coverDeco 可指定 "none" 关闭
+  if(score.coverDeco !== "none"){
+    c.strokeStyle = "rgba(255,255,255,.16)";
+    c.lineWidth = Math.max(1, w*0.012);
+    for(let i=0;i<3;i++){
+      c.beginPath();
+      c.arc(w*0.5, h*0.46, w*(0.18 + i*0.11), Math.PI*1.08, Math.PI*1.92);
+      c.stroke();
+    }
+  }
+
+  c.fillStyle = tc;
+  c.textAlign = "left";
+  drawLeft(score.coverTitle || "", left, ty * ky, size, "700", 1);
+  if(score.coverEn){
+    drawLeft(score.coverEn, left, ty * ky + tGap * ky + size * 0.32, Math.max(6, size*0.42), "500", 0.72);
+  }
+  // 底部说明：coverFooter 为真时贴右边（版式里作为"页脚"），否则与文本块左对齐
   if(score.coverSub){
-    c.font = `500 ${Math.max(6,size*0.40)}px ${FONT_STACK}`;
-    c.globalAlpha = 0.8;
-    c.fillText(score.coverSub, w*0.5, h*0.90);
-    c.globalAlpha = 1;
+    c.textAlign = score.coverFooter ? "right" : "left";
+    drawLeft(score.coverSub, score.coverFooter ? w - left : left, subY * ky, Math.max(6, size*0.40), "500", 0.8);
+    c.textAlign = "left";
   }
   if(score.coverBarText){
     c.fillStyle = "rgba(0,0,0,.34)";
     c.fillRect(0, h*0.80, w, h*0.075);
     c.fillStyle = tc;
-    c.font = `600 ${Math.max(6,size*0.40)}px ${FONT_STACK}`;
-    c.fillText(score.coverBarText, w*0.5, h*0.80 + h*0.052);
+    c.textAlign = "center";
+    // 色条文字自带左右安全边距限制（色条满宽，不能沿用文本块的 left/usable）
+    const barSize = Math.max(5, size*0.40);
+    let bs = barSize;
+    c.font = `600 ${bs}px ${FONT_STACK}`;
+    while(c.measureText(score.coverBarText).width > w * 0.9 && bs > barSize * 0.6){
+      bs *= 0.94;
+      c.font = `600 ${bs}px ${FONT_STACK}`;
+    }
+    let bt = score.coverBarText;
+    if(c.measureText(bt).width > w * 0.9){
+      while(bt.length > 1 && c.measureText(bt + "…").width > w * 0.9) bt = bt.slice(0, -1);
+      bt += "…";
+    }
+    c.fillText(bt, w*0.5, h*0.80 + h*0.052);
   }
   c.strokeStyle = "rgba(17,17,19,.07)";
   c.lineWidth = 1;
@@ -932,6 +993,23 @@ function facetValues(dim){
 /** 去重统计：作曲家数 / 类型数 / 乐器数 */
 function distinct(field){
   return new Set(SCORES.map(s => s[field])).size;
+}
+/** 维度键 → 中文名词，用于提示语（与筛选控件的「按…」措辞区分） */
+const DIM_LABEL = {composer:"作曲家", type:"曲目类型", instrument:"乐器"};
+
+/**
+ * 某维度下出现频次最高的取值。
+ *
+ * 「曲目类型」「乐器」两行展示的是「有多少个取值」，本身不指向具体某个值，
+ * 因此点击时取最高频的那个作为切入点——比取字典序第一个更符合
+ * 「先看最主流的」预期。曲库为空时返回 null，由调用方回退为「只跳库不筛选」。
+ */
+function topValue(field){
+  const m = new Map();
+  for(const s of SCORES) m.set(s[field], (m.get(s[field]) || 0) + 1);
+  let best = null, bestN = -1;
+  for(const [k, n] of m) if(n > bestN){ best = k; bestN = n; }
+  return best;
 }
 /** 作曲家人数按姓氏聚合 */
 function composerGroups(){
@@ -1201,9 +1279,9 @@ function renderMain(){
     </div>
     <div class="sectionhead">元数据</div>
     <div class="panel">
-      <div class="panelrow"><span class="pico">${ICON.person}</span><span class="plabel">作曲家</span><span class="pval">${nComp} 位</span></div>
-      <div class="panelrow"><span class="pico">${ICON.book}</span><span class="plabel">曲目类型</span><span class="pval">${distinct("type")} 类</span></div>
-      <div class="panelrow"><span class="pico">${ICON.music}</span><span class="plabel">乐器</span><span class="pval">${distinct("instrument")} 种</span></div>
+      <div class="panelrow link" data-act="jumplib" data-dim="composer" data-v=""><span class="pico">${ICON.person}</span><span class="plabel">作曲家</span><span class="pval">${nComp} 位</span><span class="arrow">${ICON.chev}</span></div>
+      <div class="panelrow link" data-act="jumplib" data-dim="type" data-v=""><span class="pico">${ICON.book}</span><span class="plabel">曲目类型</span><span class="pval">${distinct("type")} 类</span><span class="arrow">${ICON.chev}</span></div>
+      <div class="panelrow link" data-act="jumplib" data-dim="instrument" data-v=""><span class="pico">${ICON.music}</span><span class="plabel">乐器</span><span class="pval">${distinct("instrument")} 种</span><span class="arrow">${ICON.chev}</span></div>
     </div>
     <div class="sectionhead">设置</div>
     <div class="panel">
@@ -1720,6 +1798,33 @@ document.addEventListener("click", ev => {
     case "jump": {
       const t = document.getElementById("letter-" + v);
       if(t) t.scrollIntoView({behavior:"smooth", block:"start"});
+      break;
+    }
+
+    /**
+     * 「我的」页元数据统计行 → 跳到乐谱库并按该维度筛选。
+     *
+     * 与上面的 "jump"（按首字母定位索引入口）语义不同，故单列一个动作名，
+     * 避免把两种「跳转」混在一个 case 里。
+     * 取值策略与 Compose 侧一致：作曲家进全局作曲家视图（不带取值），
+     * 另两维取当前曲库中出现频次最高的那个作为切入点。
+     */
+    case "jumplib": {
+      const dim = el.dataset.dim;
+      state.tab = "manage";
+      state.libTab = "scores";
+      state.groupBy = dim;
+      state.works = null;
+      if(dim === "composer"){
+        state.filters = {composer:new Set(), type:new Set(), instrument:new Set()};
+        toast("已打开乐谱库 · " + distinct("composer") + " 位作曲家");
+      } else {
+        const pick = topValue(dim);
+        state.filters = {composer:new Set(), type:new Set(), instrument:new Set()};
+        state.filters[dim] = new Set(pick ? [pick] : []);
+        toast(pick ? `已筛选：${DIM_LABEL[dim]} · ${pick}` : "已打开乐谱库");
+      }
+      renderMain();
       break;
     }
 

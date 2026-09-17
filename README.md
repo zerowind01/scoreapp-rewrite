@@ -32,7 +32,7 @@
 prototype/scoreapp-prototype.html
 ```
 
-跑一遍业务逻辑回归测试（83 项断言）：
+跑一遍业务逻辑回归测试（102 项断言）：
 
 ```bash
 node prototype/regression-test.js
@@ -72,7 +72,7 @@ Windows 用户也可直接运行 `build.bat`（或 Git Bash 下 `./build.sh`）�
 .
 ├── prototype/                      # 交付物 1：HTML 交互原型
 │   ├── scoreapp-prototype.html     #   单文件应用（390×844 手机外壳）
-│   └── regression-test.js          #   83 项业务逻辑断言
+│   └── regression-test.js          #   102 项业务逻辑断言
 │
 └── ScoreAppCompose/                # 交付物 2：Compose Multiplatform 工程
     ├── composeApp/src/
@@ -105,7 +105,7 @@ Windows 用户也可直接运行 `build.bat`（或 Git Bash 下 `./build.sh`）�
 | 原型 | 原生 HTML / CSS / JS，零依赖，Canvas 2D 绘制缩略图 |
 | 工程 | Kotlin 2.1.21 + Compose Multiplatform 1.8.2 |
 | 构建 | Gradle 8.10.2 + AGP 8.7.3，compileSdk / targetSdk 35，minSdk 24 |
-| 测试 | Node（原型 83 项）+ kotlin-test（工程 50 项） |
+| 测试 | Node（原型 102 项）+ kotlin-test（工程 50 项） |
 
 ---
 
@@ -117,6 +117,24 @@ Windows 用户也可直接运行 `build.bat`（或 Git Bash 下 `./build.sh`）�
 - **「排序」是扩展功能**——原应用没有排序
 - **姓氏别名表被扩展**——否则样例数据中部分作曲家的索引字母会退化成汉字
 - **部分能力未实现**——PDF 阅读器、真实文件导入、分享落盘、崩溃日志等
+
+### ⚠️ 演示边界（重要）
+
+本仓库定位为**原型演示**，不是可安装使用的应用。下列能力在 UI 上**有入口但不产生真实副作用**，
+仅以提示文案反馈，请勿当作已实现功能验收：
+
+| 入口 | 实际行为 |
+| --- | --- |
+| 分享 | 只提示文件名（或「已分享曲谱信息」），不调起系统分享 |
+| 打开乐谱 / 打开 PDF | 只提示文件名，**不打开任何阅读器** |
+| 相册选图 / 选 PDF 导入 | 只在曲库里**造一条记录**，不读取真实文件、不落盘 |
+| 「我的 → 导入与存储」 | 提示的是**固定演示数值**（128 MB），非真实占用 |
+| 「我的 → 清理缓存」 | 只提示「已清理 24 MB」，未做任何清理 |
+| 崩溃提示弹层 | 硬编码的演示文案，非真实崩溃日志 |
+
+与之相对，以下能力是**真实生效**的：筛选 / 搜索 / 分组 / 排序、
+编辑与删除（含二次确认）、谱单归属反查、导入记录落库与持久化、
+「我的」页元数据统计行的跳转筛选、封面缩略图版式参数渲染。
 
 完整清单（含每处改动的理由）见 [`ScoreAppCompose/README.md`](ScoreAppCompose/README.md) 的
 「与原应用的差异清单」一节。

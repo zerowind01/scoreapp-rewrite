@@ -393,6 +393,31 @@ class ScoreAppState {
     fun worksOf(composer: String): List<Score> =
         allScores.filter { it.composer == composer }.sortedBy { it.title }
 
+    /**
+     * 从「我的」页的元数据统计行跳到乐谱库，并把该维度作为唯一筛选条件。
+     *
+     * 这几行原本是 `onClick = {}` 的空回调——点了有涟漪、却什么都不发生。
+     * 与其删掉可点区域，不如接上语义上最自然的动作：既然展示的是
+     * 「N 位作曲家 / N 类曲目类型 / N 种乐器」的统计，点进去就该看到这些
+     * 取值构成的列表。这里复用已有的筛选机制，不新造页面。
+     *
+     * @param dim 目标筛选维度
+     * @param value 具体取值；为 null 表示「不带取值」，只跳到库页并清空筛选
+     */
+    fun jumpToLibrary(dim: FilterDim, value: String? = null) {
+        // 先回根，避免从「我的」页 push 后堆栈里留着旧层
+        resetTo(Screen.Manage)
+        query = ""
+        librarySearchOpen = false
+        libraryTab = LibraryTab.Scores
+        groupBy = dim
+        filters = if (value == null) FilterState.EMPTY else FilterState.forValue(dim, value)
+        showToast(
+            if (value == null) "已打开乐谱库"
+            else "已筛选：${dim.noun} · $value",
+        )
+    }
+
     fun showToast(message: String) { toast = message }
 
     fun clearToast() { toast = null }

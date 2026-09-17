@@ -51,6 +51,20 @@ fun MeScreen(state: ScoreAppState, bottomPadding: Dp) {
     val typeCount = LibraryQuery.distinctCount(state.allScores, FilterDim.Type)
     val instrumentCount = LibraryQuery.distinctCount(state.allScores, FilterDim.Instrument)
 
+    /**
+     * 该维度下出现频次最高的取值。
+     *
+     * 「曲目类型」「乐器」两行展示的是「有多少个取值」，本身不指向某个具体值，
+     * 所以点击时取最高频的那个作为切入点——比固定取字典序第一个更符合
+     * 「先看最主流的」这一预期。曲库为空时回退为 null（只跳库、不加筛选）。
+     */
+    fun firstValue(dim: FilterDim): String? =
+        state.allScores
+            .groupingBy { if (dim == FilterDim.Type) it.type else it.instrument }
+            .eachCount()
+            .maxByOrNull { it.value }
+            ?.key
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = bottomPadding + 20.dp),
@@ -117,11 +131,31 @@ fun MeScreen(state: ScoreAppState, bottomPadding: Dp) {
 
         item { SectionHead("元数据") }
         item {
-            // 纯展示行：统计口径实时推导，不承载动作，点击不做任何事
+            // 这三行原先挂在 `onClick = {}` 上——可点、有涟漪，但什么都不发生。
+            // 既然展示的是各维度的取值统计，点击就跳到乐谱库并按该维度筛选：
+            // 「作曲家」进全局作曲家视图，另两行取当前曲库里第一个取值作为切入点。
             ListPanel {
-                ListItem(AppIcons.Person, "作曲家", "$composerCount 位", onClick = {})
-                ListItem(AppIcons.Book, "曲目类型", "$typeCount 类", onClick = {})
-                ListItem(AppIcons.MusicNote, "乐器", "$instrumentCount 种", onClick = {})
+                ListItem(
+                    icon = AppIcons.Person,
+                    label = "作曲家",
+                    value = "$composerCount 位",
+                    showArrow = true,
+                    onClick = { state.jumpToLibrary(FilterDim.Composer) },
+                )
+                ListItem(
+                    icon = AppIcons.Book,
+                    label = "曲目类型",
+                    value = "$typeCount 类",
+                    showArrow = true,
+                    onClick = { state.jumpToLibrary(FilterDim.Type, firstValue(FilterDim.Type)) },
+                )
+                ListItem(
+                    icon = AppIcons.MusicNote,
+                    label = "乐器",
+                    value = "$instrumentCount 种",
+                    showArrow = true,
+                    onClick = { state.jumpToLibrary(FilterDim.Instrument, firstValue(FilterDim.Instrument)) },
+                )
             }
         }
 
