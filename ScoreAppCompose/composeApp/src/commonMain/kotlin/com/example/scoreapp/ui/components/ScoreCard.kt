@@ -162,7 +162,7 @@ private fun CardBody(
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        imageVector = AppIcons.MoreVert,
+                        imageVector = AppIcons.MoreHoriz,
                         contentDescription = "编辑",
                         tint = Tokens.Text2,
                         modifier = Modifier.size(15.dp),

@@ -67,12 +67,18 @@ object AppIcons {
     val Sort: ImageVector by lazy {
         outline("Sort", "M7 4v16 M4 17l3 3l3-3 M17 20V4 M14 7l3-3l3 3")
     }
-    val MoreVert: ImageVector by lazy {
+    /**
+     * 横向三点。
+     *
+     * 原应用与 Material 默认都是竖向的 `MoreVert`；改为横向并把点加粗
+     * （半径 1.8 → 2.2），与原型 `ICON.more` 逐像素对齐。
+     */
+    val MoreHoriz: ImageVector by lazy {
         filled(
-            "MoreVert",
-            "M12 5.4a1.8 1.8 0 1 0 0 3.6a1.8 1.8 0 0 0 0-3.6z " +
-                "M12 10.2a1.8 1.8 0 1 0 0 3.6a1.8 1.8 0 0 0 0-3.6z " +
-                "M12 15a1.8 1.8 0 1 0 0 3.6a1.8 1.8 0 0 0 0-3.6z",
+            "MoreHoriz",
+            "M5 9.8a2.2 2.2 0 1 0 0 4.4a2.2 2.2 0 0 0 0-4.4z " +
+                "M12 9.8a2.2 2.2 0 1 0 0 4.4a2.2 2.2 0 0 0 0-4.4z " +
+                "M19 9.8a2.2 2.2 0 1 0 0 4.4a2.2 2.2 0 0 0 0-4.4z",
         )
     }
     val Close: ImageVector by lazy {

@@ -22,8 +22,8 @@ import kotlinx.coroutines.delay
 /**
  * 详情页右上角「更多」弹出的次级动作清单。
  *
- * 原应用详情页的常驻操作只有「分享」（强调色主按钮）和封面上的「编辑」，
- * 打开乐谱与删除收在这一层，避免详情页被四五个并列入口塞满。
+ * 打开乐谱与分享已作为常驻主按钮放在详情页，这一层只留
+ * 编辑与删除（删除带两段式确认），避免入口重复。
  */
 @Composable
 fun MoreSheet(state: ScoreAppState, onDismiss: () -> Unit) {
@@ -58,10 +58,7 @@ fun MoreSheet(state: ScoreAppState, onDismiss: () -> Unit) {
             shadowElevation = 1.dp,
         ) {
             Column {
-                ActionRow(AppIcons.OpenInNew, "打开乐谱", false) {
-                    onDismiss()
-                    state.openPdf(score)
-                }
+                // 「打开乐谱」已提升为详情页的常驻主按钮，此处不再重复
                 ActionRow(AppIcons.Edit, "编辑元数据", false) {
                     onDismiss()
                     state.openEditor(score)

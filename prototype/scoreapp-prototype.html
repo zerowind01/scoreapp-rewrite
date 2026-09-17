@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<html lang="zh-CN" data-page-node-id="DyV1xRH1cojyaKDkxUR5ON">
+<head data-page-node-id="XjkkJTyMZatMVPQcqqAao3">
+<meta charset="UTF-8" data-page-node-id="oUdN8cOGLlgCdnvAru41E2" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" data-page-node-id="o1rLf0fzay3xGNTDHknKjr" />
 <title>乐谱管理 · UI 原型</title>
 <style>
   /* ============ 设计令牌（取自原应用 Tokens.kt 解码值） ============ */
@@ -248,8 +248,9 @@
     /* 高度 54px（内容 44 + 上下 4 + 边框 1×2）⇒ 半径取 27px 恰好等于高度一半，
        两端得到真正的半圆收口，而不是"圆角矩形" */
     border-radius:27px;
-    background:rgba(255,255,255,.62);
-    /* 毛玻璃：加厚模糊 + 提饱和，让底下内容透出来但不过分干扰阅读 */
+    background:rgba(255,255,255,.82);
+    /* 毛玻璃：加厚模糊 + 提饱和，让底下内容透出来但不过分干扰阅读。
+       底色不透明度 .82 —— 早前是 .62，透得太多，列表文字穿上来会糊。 */
     backdrop-filter:blur(26px) saturate(180%);
     -webkit-backdrop-filter:blur(26px) saturate(180%);
     border:1px solid rgba(255,255,255,.72);
@@ -283,13 +284,9 @@
     box-shadow:0 3px 10px rgba(17,17,19,.12);
     z-index:-1;
   }
-  .navitem:active::before{
-    content:"";position:absolute;top:50%;left:50%;
-    width:56px;height:52px;
-    transform:translate(-50%,-50%);
-    border-radius:50%;
-    background:rgba(255,255,255,.62);z-index:-1;
-  }
+  /* 选中态的气泡就是唯一的点击反馈，不再额外加按下态。
+     原先这里有一条 `.navitem:active::before`，会在按下瞬间叠一层白色块——
+     在宽屏上被拉成长方形，观感脏，已去掉。 */
 
   /* ============ FAB ============ */
   .fab{
@@ -367,16 +364,19 @@
   .btn.ghost{background:var(--surface3);color:var(--text1);}
   .btn.danger{background:var(--danger-bg);color:var(--danger-fg);}
   .btn.wide{flex:1 1 100%;}
-  /* 详情页主操作：强调色整宽按钮。不在 flex 容器里，所以用 width 而非 flex 撑满 */
-  .sharebtn{
-    display:flex;align-items:center;justify-content:center;gap:8px;
-    width:calc(100% - 32px);height:50px;margin:14px 16px 0;border:0;border-radius:15px;
-    background:var(--accent);color:var(--accent-fg);font-size:15px;font-weight:700;
-    font-family:var(--font);cursor:pointer;transition:transform .12s;
+  /* 详情页主操作：查看乐谱（强调）与分享（次级）并排，各占一半。
+     「分享」原先是整宽强调按钮，但读谱才是详情页的第一动作，
+     打开乐谱被塞在「更多」里反而更难点到，所以两个动作拉平到一行。 */
+  .actionrow{display:flex;gap:10px;margin:14px 16px 0;}
+  .actbtn{
+    flex:1 1 0;height:50px;border:0;border-radius:15px;display:flex;align-items:center;justify-content:center;
+    gap:8px;font-size:15px;font-weight:700;font-family:var(--font);cursor:pointer;transition:transform .12s;
   }
-  .sharebtn:active{transform:scale(.985);}
-  .sharebtn .ico{display:flex;width:19px;height:19px;}
-  .sharebtn .ico svg{width:100%;height:100%;}
+  .actbtn:active{transform:scale(.985);}
+  .actbtn.primary{background:var(--accent);color:var(--accent-fg);}
+  .actbtn.ghost{background:var(--surface3);color:var(--text1);}
+  .actbtn .ico{display:flex;width:19px;height:19px;}
+  .actbtn .ico svg{width:100%;height:100%;}
 
   .importrow{
     display:flex;align-items:center;gap:14px;padding:15px;background:var(--surface);border-radius:16px;
@@ -400,13 +400,7 @@
   }
   .detailhead .back svg{width:19px;height:19px;}
   .hero .hmeta{font-size:12.5px;color:var(--text3);line-height:1.68;}
-  .hero .thumb{position:relative;}
-  .hero .editbadge{
-    position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:50%;border:0;padding:0;
-    background:rgba(17,17,19,.55);color:#fff;display:flex;align-items:center;justify-content:center;
-    cursor:pointer;backdrop-filter:blur(2px);
-  }
-  .hero .editbadge svg{width:15px;height:15px;display:block;}
+  /* 预览图上原先叠了一个编辑角标，与「更多 → 编辑元数据」重复，已去掉 */
   .detailhead h2{margin:0;font-size:17px;font-weight:800;letter-spacing:-.3px;flex:1;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .hero{margin:6px 16px 0;background:var(--surface);border-radius:var(--r-card);padding:14px;display:flex;gap:14px;
@@ -444,59 +438,223 @@
   .crash .acts .a2{background:var(--danger-bg);color:var(--danger-fg);}
 
   .hint{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;font-size:11.5px;color:#6C6C73;letter-spacing:.2px;}
+
+  /* =====================================================================
+     文件链路演示层
+     浏览器里唤不起真实的系统选择器 / 分享面板，这里用等效面板演示信息流。
+     样式沿用本原型的同一套令牌，尺寸与手机外壳一致。
+     ===================================================================== */
+
+  /* ---- 系统选择器 / 分享面板 ---- */
+  .syslayer{position:absolute;inset:0;z-index:60;background:var(--bg-page);display:none;flex-direction:column;}
+  .syslayer.on{display:flex;}
+  .sysbar{flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:13px 14px;
+    background:var(--surface);border-bottom:1px solid var(--line);}
+  .sysbar h4{margin:0;font-size:15px;font-weight:800;flex:1;min-width:0;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;}
+  .sysbar .sub{font-size:11.5px;color:var(--text3);font-weight:600;white-space:nowrap;}
+  .sysbar button{border:0;background:none;font-family:var(--font);font-size:13px;font-weight:700;
+    color:var(--link);cursor:pointer;padding:4px 2px;}
+  .sysgrid{flex:1 1 auto;overflow-y:auto;display:grid;grid-template-columns:repeat(3,1fr);
+    gap:5px;padding:5px;align-content:start;}
+  .sysgrid::-webkit-scrollbar{display:none;}
+  .syscell{position:relative;aspect-ratio:1/1;border-radius:11px;overflow:hidden;
+    background:var(--surface2);cursor:pointer;transition:transform .12s;}
+  .syscell:active{transform:scale(.96);}
+  .syscell canvas{width:100%;height:100%;display:block;}
+  .syscell .pick{position:absolute;right:6px;top:6px;width:20px;height:20px;border-radius:50%;
+    border:2px solid rgba(255,255,255,.92);background:rgba(0,0,0,.26);transition:.14s;}
+  .syscell.on .pick{background:var(--accent);border-color:var(--accent);}
+  .syscell.on .pick::after{content:"";position:absolute;left:5.5px;top:2px;width:4px;height:8px;
+    border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg);}
+  .syscell .idx{position:absolute;left:6px;top:6px;min-width:18px;height:18px;border-radius:9px;
+    background:rgba(17,17,19,.76);color:#fff;font-size:10.5px;font-weight:800;display:none;
+    align-items:center;justify-content:center;padding:0 5px;font-variant-numeric:tabular-nums;}
+  .syscell.on .idx{display:flex;}
+  .syscell .badmark{position:absolute;left:6px;bottom:6px;width:18px;height:18px;border-radius:50%;
+    background:rgba(210,58,58,.92);color:#fff;font-size:11px;font-weight:800;display:flex;
+    align-items:center;justify-content:center;}
+  .syslist{flex:1 1 auto;overflow-y:auto;padding:9px 11px;}
+  .syslist::-webkit-scrollbar{display:none;}
+  .sysrow{display:flex;align-items:center;gap:11px;padding:12px;border-radius:14px;
+    background:var(--surface);margin-bottom:8px;cursor:pointer;}
+  .sysrow .fi{width:36px;height:36px;border-radius:10px;background:var(--surface3);color:var(--text2);
+    display:flex;align-items:center;justify-content:center;flex:0 0 36px;}
+  .sysrow .fi svg{width:19px;height:19px;}
+  .sysrow .fm{flex:1;min-width:0;}
+  .sysrow .fm h5{margin:0 0 2px;font-size:13.5px;font-weight:700;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;}
+  .sysrow .fm p{margin:0;font-size:11px;color:var(--text3);font-weight:600;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;}
+  .sysrow .chev{flex:0 0 16px;width:16px;height:16px;color:var(--text3);display:flex;
+    align-items:center;}
+  .sysrow .chev svg{width:16px;height:16px;display:block;}
+  .sysfoot{flex:0 0 auto;padding:10px 12px 14px;display:flex;gap:9px;background:var(--surface);
+    border-top:1px solid var(--line);}
+
+  /* ---- 处理中遮罩 ---- */
+  .busy{position:absolute;inset:0;z-index:70;display:none;align-items:center;justify-content:center;
+    flex-direction:column;gap:12px;background:rgba(244,244,246,.88);}
+  .busy.on{display:flex;}
+  .busy .ring{width:34px;height:34px;border-radius:50%;border:3px solid var(--surface3);
+    border-top-color:var(--accent);animation:spin .8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .busy p{margin:0;font-size:13px;font-weight:700;}
+  .busy span{font-size:11.5px;color:var(--text3);font-weight:600;}
+
+  /* ---- PDF 阅读器 ---- */
+  .reader{position:absolute;inset:0;z-index:30;background:var(--bg-page);display:none;
+    flex-direction:column;}
+  .reader.on{display:flex;}
+  .readerbar{flex:0 0 auto;display:flex;align-items:center;gap:4px;padding:12px 8px 8px;}
+  .readerbar .rt{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;}
+  .readerbar .rt b{font-size:15px;font-weight:800;white-space:nowrap;overflow:hidden;
+    text-overflow:ellipsis;letter-spacing:-.2px;}
+  .readerbar .rt span{font-size:11.5px;color:var(--text3);font-weight:600;}
+  .rback{
+    width:38px;height:38px;flex:0 0 38px;border-radius:50%;border:0;background:var(--surface);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text1);
+    box-shadow:0 1px 2px rgba(17,17,19,.06);padding:0;
+  }
+  .rback svg{width:19px;height:19px;display:block;}
+  .rback:active{transform:scale(.92);}
+  .pagebadge{background:var(--surface);border-radius:10px;padding:5px 9px;font-size:11.5px;
+    font-weight:700;color:var(--text2);white-space:nowrap;}
+  .readerbody{flex:1 1 auto;position:relative;overflow:hidden;}
+  .pager{position:absolute;inset:0;display:none;overflow:hidden;touch-action:none;
+    cursor:grab;background:var(--bg-page);}
+  .pager.on{display:block;}
+  .pager.grabbing{cursor:grabbing;}
+  .sheetpage{position:absolute;top:50%;left:50%;transform-origin:0 0;background:#fff;
+    border-radius:10px;box-shadow:0 2px 10px rgba(17,17,19,.08);overflow:hidden;}
+  .sheetpage canvas{display:block;width:100%;height:100%;}
+  .pagedots{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);
+    background:rgba(17,17,19,.72);color:#fff;font-size:12px;font-weight:600;padding:5px 12px;
+    border-radius:12px;white-space:nowrap;pointer-events:none;font-variant-numeric:tabular-nums;}
+  .statebox{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    padding:32px;text-align:center;font-size:14px;color:var(--text2);font-weight:600;
+    line-height:1.65;}
+  .readerload{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;}
+  .readerload .ring{width:32px;height:32px;border-radius:50%;border:3px solid var(--surface3);
+    border-top-color:var(--text2);animation:spin .8s linear infinite;}
+  .zoomhint{position:absolute;right:12px;top:12px;background:var(--surface);border-radius:10px;
+    padding:5px 9px;font-size:11px;font-weight:700;color:var(--text2);pointer-events:none;}
+
+  /* ---- 分享面板 ---- */
+  .sharepre{background:var(--surface2);border-radius:13px;padding:12px;margin:0 0 12px;
+    font-size:12px;line-height:1.62;white-space:pre-wrap;color:var(--text1);max-height:168px;
+    overflow-y:auto;}
+  .sharetargets{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:2px 0 10px;}
+  .starget{display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;}
+  .starget i{width:46px;height:46px;border-radius:14px;display:flex;align-items:center;
+    justify-content:center;font-size:16px;font-weight:800;color:#fff;font-style:normal;}
+  .starget span{font-size:10.5px;color:var(--text2);font-weight:600;text-align:center;}
+  .attach{display:flex;align-items:center;gap:9px;background:var(--surface2);border-radius:12px;
+    padding:9px 11px;margin:0 0 10px;}
+  .attach .fi{width:28px;height:28px;border-radius:8px;background:var(--danger-bg);
+    color:var(--danger-fg);display:flex;align-items:center;justify-content:center;flex:0 0 28px;}
+  .attach .fi svg{width:16px;height:16px;}
+  .attach .an{font-size:12px;font-weight:700;flex:1;min-width:0;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap;}
+  .attach .az{font-size:10.5px;color:var(--text3);font-weight:600;white-space:nowrap;}
+  .kvnote{font-size:11px;color:var(--text3);line-height:1.6;margin:0 0 12px;font-weight:600;}
+
+  /* ---- 演示直达条（手机外壳之外的评审辅助，不属于产品界面） ---- */
+  .demobar{
+    position:fixed;left:14px;top:14px;z-index:99;display:flex;flex-direction:column;
+    align-items:flex-start;gap:6px;max-width:184px;
+  }
+  .demobar .dlabel{font-size:11px;color:#6C6C73;font-weight:700;letter-spacing:.3px;}
+  .demobar button{
+    border:1px solid rgba(17,17,19,.12);background:#fff;color:#3A3A42;font-family:var(--font);
+    font-size:11px;font-weight:600;padding:5px 9px;border-radius:999px;cursor:pointer;
+    white-space:nowrap;transition:.14s;
+  }
+  .demobar button:hover{background:#111113;color:#fff;border-color:#111113;}
+  .demobar button.on{background:#111113;color:#fff;border-color:#111113;}
+  /* 窄屏（手机外壳几乎占满）时让位，避免演示条盖住产品界面 */
+  @media (max-width: 820px){ .demobar{display:none;} }
 </style>
 </head>
-<body>
+<body data-page-node-id="VHqqLfAmMeWoT0SitPJidS">
 
-<div class="phone">
-  <div class="statusbar">
-    <span id="clock">9:41</span>
-    <div class="icons"><i class="c"></i><i></i><i class="b"></i></div>
+<div class="phone" data-page-node-id="2AIGVnL2Q4mXuB0P9LqcQm">
+  <div class="statusbar" data-page-node-id="aSQP2eDLBQwtvd6wKoicA0">
+    <span id="clock" data-page-node-id="2j8gl5b0S8mWdXUtqPNmPH">9:41</span>
+    <div class="icons" data-page-node-id="YQ6sFHJdUUTYylS7SWvC6Z"><i class="c" data-page-node-id="LjOSONxUNRz7yjwDsDDhPe"></i><i data-page-node-id="wEyhnyLcDW4zXASJpQzh9Z"></i><i class="b" data-page-node-id="tPKKJc3vRdeQwovo3p6C7s"></i></div>
   </div>
 
-  <div class="viewport">
+  <div class="viewport" data-page-node-id="gDDLQANe3NPHzzbPunJGvA">
     <!-- 主界面 -->
-    <div class="layer with-nav" id="mainLayer">
-      <div class="scroll" id="content"></div>
-      <button class="fab" id="fab" title="导入乐谱">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+    <div class="layer with-nav" id="mainLayer" data-page-node-id="NeCaVNsiJIvELL3bRdcdD8">
+      <div class="scroll" id="content" data-page-node-id="HtbdOVzwl394v04iMiNqM3"></div>
+      <button class="fab" id="fab" title="导入乐谱" data-page-node-id="eSrDfqgz8nWusDtAYCE035">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="kXeS9cFF1uolcqDbyhaU7R"><path d="M12 5v14M5 12h14" data-page-node-id="oiAkvOkvhp30qJziR5vVF3"/></svg>
       </button>
-      <nav class="bottomnav" id="bottomnav"></nav>
+      <nav class="bottomnav" id="bottomnav" data-page-node-id="tD9TaN9alcwxXfY4ClnFDm"></nav>
     </div>
 
     <!-- 详情页（压在上一层） -->
-    <div class="layer" id="detailLayer" style="display:none;background:var(--bg-page);z-index:10">
-      <div class="scroll" id="detailContent"></div>
+    <div class="layer" id="detailLayer" style="display:none;background:var(--bg-page);z-index:10" data-page-node-id="pfM68ptkNlVHjCRJLnj9T4">
+      <div class="scroll" id="detailContent" data-page-node-id="3laADDZfgCAF1YnfrDSPvf"></div>
     </div>
 
     <!-- 弹层 -->
-    <div class="scrim" id="scrim"></div>
-    <div class="sheet" id="sheet">
-      <div class="sheet-grip"></div>
-      <div class="sheet-head">
-        <h3 id="sheetTitle">标题</h3>
-        <button class="close" id="sheetClose">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    <div class="scrim" id="scrim" data-page-node-id="ZRPXtqcUvJUrVilmoxEP8k"></div>
+    <div class="sheet" id="sheet" data-page-node-id="YOYCBUOXX1B7azXrZqLVfi">
+      <div class="sheet-grip" data-page-node-id="4pWp0EHTFwk2zaMFDm4VF0"></div>
+      <div class="sheet-head" data-page-node-id="EXsZ8RGyI9DoO8MgJ1nAn9">
+        <h3 id="sheetTitle" data-page-node-id="Silu0MBDLSzS5Jc9nW6q83">标题</h3>
+        <button class="close" id="sheetClose" data-page-node-id="VS6zAOx4K0Ozexi3blhXHE">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" data-page-node-id="TGZdqWhTxYL0j6Kn0XGdsY"><path d="M6 6l12 12M18 6L6 18" data-page-node-id="UDRcCKbPiWFn5EAMCX38Qz"/></svg>
         </button>
       </div>
-      <div class="sheet-body" id="sheetBody"></div>
-      <div class="sheet-foot" id="sheetFoot"></div>
+      <div class="sheet-body" id="sheetBody" data-page-node-id="FQu4lRlnb9dDJTWgSuwX9o"></div>
+      <div class="sheet-foot" id="sheetFoot" data-page-node-id="KKzIKX17GOFADmDZk5X8SC"></div>
     </div>
 
-    <div class="toast" id="toast"></div>
+    <!-- PDF 阅读器（全屏，压在详情页之上） -->
+    <div class="reader" id="readerLayer" data-page-node-id="P45wpzdgia9qXJcsCrWJhV"></div>
 
-    <div class="crash" id="crash">
-      <h5>上次运行发生异常</h5>
-      <p>日志已保存到：Android/data/com.example.scoreapp/files/crash_last.txt</p>
-      <div class="acts">
-        <button class="a1" onclick="copyCrashLog()">复制日志</button>
-        <button class="a2" onclick="document.getElementById('crash').classList.remove('on')">关闭</button>
+    <!-- 模拟系统选择器 / 系统分享面板 -->
+    <div class="syslayer" id="sysLayer" data-page-node-id="yDtURcJ8aIGhnXniSL2jnG"></div>
+
+    <!-- 图片合成 / 文件拷贝的处理中遮罩 -->
+    <div class="busy" id="busy" data-page-node-id="5l2COwNApEyap2go7Ehu2p">
+      <div class="ring" data-page-node-id="CGkfg3UN1tlQnsvsCZ4Xb8"></div>
+      <p id="busyTitle" data-page-node-id="tCUMHgkMB6rkQ5pODlf3Ss">正在合成 PDF…</p>
+      <span id="busySub" data-page-node-id="2FdVpiYoVgBs7x7BSJq2WK"></span>
+    </div>
+
+    <div class="toast" id="toast" data-page-node-id="9HYNIYMU6mBsBhWrT7Hndr"></div>
+
+    <div class="crash" id="crash" data-page-node-id="OSELAJJhBp9k52bhyB8Vm2">
+      <h5 data-page-node-id="MHEN3NxvhoDdk0fSqzA5EW">上次运行发生异常</h5>
+      <p data-page-node-id="deSWZWKlDuvo2uTjwux79G">日志已保存到：Android/data/com.example.scoreapp/files/crash_last.txt</p>
+      <div class="acts" data-page-node-id="bSGqYuAdJosfCMtYq776UP">
+        <button class="a1" onclick="copyCrashLog()" data-page-node-id="YctpIDAsS31Uu1k40NPsH8">复制日志</button>
+        <button class="a2" onclick="document.getElementById('crash').classList.remove('on')" data-page-node-id="tTX7VWErD9M0fC8oDGwETC">关闭</button>
       </div>
     </div>
   </div>
 </div>
 
-<div class="hint">纯 HTML + 原生 JS 原型 · 点击卡片看详情 · 右上角图标切筛选 / 搜索 / 网格 · 底部导航切换页面</div>
+<div class="hint" data-page-node-id="PthkcFlW6XmLcIJr71YjqL">纯 HTML + 原生 JS 原型 · 点击卡片看详情 · 右上角图标切筛选 / 搜索 / 网格 · 底部导航切换页面</div>
+
+<!-- 评审辅助：一键跳到文件链路里的每个状态。手机外壳之外的东西都只是演示用，不是产品界面。 -->
+<div class="demobar" id="demobar" data-page-node-id="hwNiYsOLSaCAFv8l4FrTA5">
+  <span class="dlabel" data-page-node-id="8RFmBeTbNNXIiweOlzOMMu">演示直达</span>
+  <button data-demo="album" data-page-node-id="iHQ7jf3XQOjaVJIuHfEFiz">导入 · 相册多选</button>
+  <button data-demo="pdfpick" data-page-node-id="a7MbdAYx4guNNycyU1RyIT">导入 · 选 PDF</button>
+  <button data-demo="reader" data-page-node-id="8qfbNfAp3Xlkt5LbFgK9Yz">阅读器 · 正常</button>
+  <button data-demo="reader-loading" data-page-node-id="NRvC2mJ8TwW8mMtrjf6lQx">阅读器 · 读取中</button>
+  <button data-demo="reader-empty" data-page-node-id="CKSgcKHdcmuOvOvUQPQmAR">阅读器 · 无页面</button>
+  <button data-demo="reader-error" data-page-node-id="BlpPpdWLVG7Gz53en00SGW">阅读器 · 打开失败</button>
+  <button data-demo="share-pdf" data-page-node-id="XS8N8CL6hMIVJKoDOGUrhn">分享 · 带 PDF</button>
+  <button data-demo="share-text" data-page-node-id="Mjp6TVOsAKOBOUFkXVRehT">分享 · 纯文本</button>
+  <button data-demo="detail">详情页</button>
+  <button data-demo="me">我的页</button>
+</div>
 
 <script>
 "use strict";
@@ -787,7 +945,15 @@ function drawCover(c, w, h, score){
   c.strokeRect(0.5,0.5,w-1,h-1);
 }
 
-/** 统一入口：按 thumbKind 分派 */
+/**
+ * 统一入口：按 thumbKind 分派。
+ *
+ * 封面优先级（对译 `Thumb.kt` 的三分支）：
+ *   1) 位图加载成功 → 直接贴图（Fit 缩放，白底）
+ *   2) 有文件但渲染不出来 → 叠「预览加载失败」提示
+ *   3) 没有文件 → 程序化绘制（drawEngrave / drawCover）兜底
+ * 程序化绘制是**兜底**，不是主路径 —— 这是本轮把封面做真的关键区别。
+ */
 function paintThumb(canvas, score, dense){
   const w = canvas.clientWidth || canvas.width;
   const h = canvas.clientHeight || canvas.height;
@@ -796,8 +962,83 @@ function paintThumb(canvas, score, dense){
   canvas.height = Math.round(h*dpr);
   const c = canvas.getContext("2d");
   c.setTransform(dpr,0,0,dpr,0,0);
-  if(score.thumbKind === "cover") drawCover(c, w, h, score);
-  else drawEngrave(c, w, h, score, !!dense);
+
+  // 无实体文件的乐谱：维持原有的程序化绘制
+  if(!pdfReady(score)){
+    if(score.thumbKind === "cover") drawCover(c, w, h, score);
+    else drawEngrave(c, w, h, score, !!dense);
+    return;
+  }
+
+  c.clearRect(0, 0, w, h);
+  const st = resolveCoverState(score);
+
+  if(st === CoverLoad.Loaded){
+    const bmp = THUMB_CACHE.get(resolvePdfPath(score));
+    if(bmp){
+      // 等比铺满短边（原应用 ContentScale.Crop），居中对齐
+      const s = Math.max(w / bmp.width, h / bmp.height);
+      const dw = bmp.width * s, dh = bmp.height * s;
+      c.fillStyle = "#FFFFFF";
+      c.fillRect(0, 0, w, h);
+      c.save();
+      c.beginPath(); c.rect(0, 0, w, h); c.clip();
+      try{
+        c.drawImage(bmp, (w - dw) / 2, (h - dh) / 2, dw, dh);
+      }catch(_){
+        // 载体不是真 Canvas 时（测试桩）退化为纯色，仍算「已加载」
+      }
+      c.restore();
+      c.strokeStyle = "rgba(17,17,19,.07)";
+      c.lineWidth = 1;
+      c.strokeRect(0.5, 0.5, w-1, h-1);
+      return;
+    }
+  }
+
+  // 有文件但没渲染出来 → 提示层（对译 Thumb.kt 的 LoadFailedHint）
+  drawCoverFailedHint(c, w, h, score);
+}
+
+/** 「预览加载失败」提示层：底 `#EFEFF2`、图标 `#B4B4BC`、文字 `#8A8A93` @ 9sp Medium */
+function drawCoverFailedHint(c, w, h, score){
+  c.fillStyle = "#EFEFF2";
+  c.fillRect(0, 0, w, h);
+
+  const FONT_STACK = '-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif';
+  const iconBox = Math.max(9, Math.min(w, h) * 0.20);
+
+  // 文件图标（一个带折角的矩形），颜色 #B4B4BC
+  c.save();
+  c.translate(w*0.5, h*0.5 - iconBox*0.42);
+  c.strokeStyle = "#B4B4BC";
+  c.lineWidth = Math.max(1, iconBox*0.075);
+  c.lineJoin = "round";
+  const iw = iconBox, ih = iconBox*1.24, fold = iw*0.36;
+  c.beginPath();
+  c.moveTo(-iw/2, -ih/2);
+  c.lineTo(iw/2 - fold, -ih/2);
+  c.lineTo(iw/2, -ih/2 + fold);
+  c.lineTo(iw/2, ih/2);
+  c.lineTo(-iw/2, ih/2);
+  c.closePath();
+  c.stroke();
+  c.beginPath();
+  c.moveTo(iw/2 - fold, -ih/2);
+  c.lineTo(iw/2 - fold, -ih/2 + fold);
+  c.lineTo(iw/2, -ih/2 + fold);
+  c.stroke();
+  c.restore();
+
+  // 文案 9sp Medium
+  const fs = Math.max(7.5, Math.min(w, h) * 0.072);
+  c.font = `500 ${fs}px ${FONT_STACK}`;
+  c.fillStyle = "#8A8A93";
+  c.textAlign = "center";
+  c.textBaseline = "middle";
+  c.fillText("预览加载失败", w*0.5, h*0.5 + iconBox*0.95);
+  c.textAlign = "left";
+  c.textBaseline = "alphabetic";
 }
 
 /* =====================================================================
@@ -822,65 +1063,23 @@ function mk(title, composer, type, instrument, period, level, source, pages, opt
 const SCORES = [
   mk("《升c小调第十四钢琴奏鸣曲「月光」》Op.27 No.2","路德维希·范·贝多芬","奏鸣曲","钢琴","古典","高级","Henle 原版",14,
      {assetPdf:"moonlight_op27_no2.pdf", thumbSeed:37, thumbRows:5}),
-  mk("《平均律键盘曲集 第一卷》BWV 846-869","约翰·塞巴斯蒂安·巴赫","前奏曲","钢琴","巴洛克","高级","Bärenreiter 版",96,{thumbSeed:11,thumbRows:6}),
-  mk("《哥德堡变奏曲》BWV 988","约翰·塞巴斯蒂安·巴赫","变奏曲","钢琴","巴洛克","演奏级","Henle 原版",64,{thumbSeed:29,thumbRows:6}),
-  mk("《练习曲 Op.10》","弗雷德里克·弗朗索瓦·肖邦","练习曲","钢琴","浪漫","高级","Peters 版",52,{thumbSeed:53,thumbRows:5}),
   mk("《夜曲集》","弗雷德里克·弗朗索瓦·肖邦","夜曲","钢琴","浪漫","中级","Henle 原版",88,{thumbSeed:71,thumbRows:6}),
-  mk("《g小调第一叙事曲》Op.23","弗雷德里克·弗朗索瓦·肖邦","叙事曲","钢琴","浪漫","演奏级","Henle 原版",12,{thumbSeed:97,thumbRows:4}),
-  mk("《土耳其进行曲》K.331 第三乐章","沃尔夫冈·阿玛多伊斯·莫扎特","奏鸣曲","钢琴","古典","中级","Peters 版",8,{thumbSeed:13,thumbRows:3}),
-  mk("《D大调双钢琴奏鸣曲》K.448","沃尔夫冈·阿玛多伊斯·莫扎特","奏鸣曲","钢琴","古典","高级","Bärenreiter 版",42,{thumbSeed:131,thumbRows:5}),
-  mk("《月光》/《贝加马斯克组曲》","阿希尔-克洛德·德彪西","组曲","钢琴","印象主义","高级","Durand 版",22,{thumbSeed:151,thumbRows:4}),
-  mk("《牧神午后前奏曲》","阿希尔-克洛德·德彪西","交响曲","管弦乐","印象主义","演奏级","Durand 版",48,{thumbSeed:173,thumbRows:6}),
-  mk("《仲夏夜之梦》序曲 Op.21","费利克斯·门德尔松","交响曲","管弦乐","浪漫","高级","Breitkopf 版",56,{thumbSeed:191,thumbRows:6}),
-  mk("《24 首随想曲》Op.1","尼科罗·帕格尼尼","练习曲","小提琴","浪漫","演奏级","Peters 版",46,{thumbSeed:211,thumbRows:5}),
-  mk("《魔王》D.328","弗朗茨·舒伯特","叙事曲","声乐","浪漫","中级","Bärenreiter 版",10,{thumbSeed:233,thumbRows:3}),
-  mk("《鳟鱼五重奏》D.667","弗朗茨·舒伯特","室内乐","室内乐","浪漫","高级","Henle 原版",72,{thumbSeed:257,thumbRows:6}),
-  mk("《e小调第四交响曲》Op.98","约翰内斯·勃拉姆斯","交响曲","管弦乐","浪漫","演奏级","Breitkopf 版",118,{thumbSeed:277,thumbRows:6}),
-  mk("《匈牙利舞曲》第五号","约翰内斯·勃拉姆斯","圆舞曲","钢琴","浪漫","中级","Peters 版",14,{thumbSeed:293,thumbRows:4}),
-  mk("《天鹅湖》组曲 Op.20a","彼得·伊里奇·柴可夫斯基","组曲","管弦乐","浪漫","高级","Peters 版",86,{thumbSeed:311,thumbRows:6}),
-  mk("《第一钢琴协奏曲》Op.23","彼得·伊里奇·柴可夫斯基","协奏曲","钢琴","浪漫","演奏级","Peters 版",94,{thumbSeed:331,thumbRows:6}),
-  mk("《匈牙利狂想曲》第二号 S.244/2","弗朗茨·李斯特","变奏曲","钢琴","浪漫","演奏级","Editio Musica",18,{thumbSeed:353,thumbRows:4}),
-  mk("《十二首超技练习曲》S.139","弗朗茨·李斯特","练习曲","钢琴","浪漫","演奏级","Editio Musica",124,{thumbSeed:373,thumbRows:6}),
-  mk("《惊愕交响曲》Hob.I:94","约瑟夫·海顿","交响曲","管弦乐","古典","中级","Henle 原版",52,{thumbSeed:397,thumbRows:5}),
-  mk("《四季》Op.8","安东尼奥·维瓦尔第","协奏曲","小提琴","巴洛克","高级","Bärenreiter 版",78,{thumbSeed:419,thumbRows:6}),
-  mk("《c小调第二钢琴协奏曲》Op.18","谢尔盖·拉赫玛尼诺夫","协奏曲","钢琴","现代","演奏级","Boosey 版",104,{thumbSeed:433,thumbRows:6}),
-  mk("《音画练习曲》Op.33","谢尔盖·拉赫玛尼诺夫","练习曲","钢琴","现代","高级","Boosey 版",44,{thumbSeed:457,thumbRows:5}),
-  mk("《钢琴快速练习曲》Op.299","卡尔·车尔尼","练习曲","钢琴","古典","初级","Peters 版",68,{thumbSeed:479,thumbRows:6}),
-  mk("《小奏鸣曲集》Op.36","穆齐奥·克莱门蒂","奏鸣曲","钢琴","古典","初级","本地导入",36,{thumbSeed:491,thumbRows:5}),
-  mk("《小星星变奏曲》K.265","沃尔夫冈·阿玛多伊斯·莫扎特","变奏曲","钢琴","古典","初级","本地导入",9,{thumbSeed:503,thumbRows:3}),
-  mk("《卡农与吉格》","约翰·帕赫贝尔","室内乐","室内乐","巴洛克","中级","本地导入",11,{thumbSeed:521,thumbRows:3}),
-  mk("《无伴奏大提琴组曲》BWV 1007-1012","约翰·塞巴斯蒂安·巴赫","组曲","大提琴","巴洛克","演奏级","Bärenreiter 版",142,{thumbSeed:547,thumbRows:6}),
-  mk("《魔笛》序曲 K.620","沃尔夫冈·阿玛多伊斯·莫扎特","交响曲","管弦乐","古典","高级","Bärenreiter 版",28,{thumbSeed:563,thumbRows:4}),
-  mk("《幻想即兴曲》Op.66","弗雷德里克·弗朗索瓦·肖邦","即兴曲","钢琴","浪漫","高级","Henle 原版",10,{thumbSeed:587,thumbRows:3}),
-  mk("《阿莱城姑娘》组曲","乔治·比才","组曲","管弦乐","浪漫","中级","Peters 版",64,{thumbSeed:601,thumbRows:6}),
-  mk("《长笛与竖琴协奏曲》K.299","沃尔夫冈·阿玛多伊斯·莫扎特","协奏曲","长笛","古典","高级","Bärenreiter 版",58,{thumbSeed:619,thumbRows:5}),
-  mk("《单簧管五重奏》K.581","沃尔夫冈·阿玛多伊斯·莫扎特","室内乐","单簧管","古典","高级","Henle 原版",48,{thumbSeed:641,thumbRows:5}),
-  mk("《浪漫曲》Op.94","罗伯特·舒曼","变奏曲","钢琴","浪漫","中级","Henle 原版",26,{thumbSeed:661,thumbRows:4}),
-  mk("《童年情景》Op.15","罗伯特·舒曼","组曲","钢琴","浪漫","中级","Henle 原版",32,{thumbSeed:683,thumbRows:4}),
-  mk("《冬之旅》D.911","弗朗茨·舒伯特","叙事曲","声乐","浪漫","高级","Bärenreiter 版",82,{thumbSeed:701,thumbRows:6}),
-  mk("《图画展览会》","莫杰斯特·穆索尔斯基","组曲","钢琴","浪漫","演奏级","Peters 版",44,{thumbSeed:727,thumbRows:5}),
-  mk("《春之祭》","伊戈尔·斯特拉文斯基","交响曲","管弦乐","现代","演奏级","Boosey 版",152,{thumbSeed:743,thumbRows:6}),
-  mk("《二十世纪钢琴小品选》","佚名","组曲","钢琴","现代","中级","本地导入",40,{thumbSeed:761,thumbRows:5}),
-  mk("《爵士风格练习曲》","合集","练习曲","钢琴","现代","中级","本地导入",30,{thumbSeed:787,thumbRows:5}),
-  // 一张封面型缩略图，用于展示 cover 渲染分支
-  mk("《阿希尔-克洛德·德彪西 作品集》","阿希尔-克洛德·德彪西","组曲","钢琴","印象主义","高级","Durand 版",168,{
-    thumbKind:"cover", thumbSeed:809, thumbRows:6,
-    coverTitle:"DEBUSSY", coverEn:"PIANO WORKS · UR TEXT", coverTColor:"#ffffff",
-    coverDeco:"arc", coverFooter:true, coverBarText:"DURAND ÉDITIONS",
-    coverSub:"印象主义 · 钢琴", coverC1:"#243b4a", coverC2:"#5b7f96",
+  // 一张封面型缩略图，用于展示 cover 渲染分支（曲库精简后仍需保留这一支）
+  mk("《四季》Op.8","安东尼奥·维瓦尔第","协奏曲","小提琴","巴洛克","高级","Bärenreiter 版",78,{
+    thumbKind:"cover", thumbSeed:419, thumbRows:6,
+    coverTitle:"VIVALDI", coverEn:"THE FOUR SEASONS · OP.8", coverTColor:"#ffffff",
+    coverDeco:"arc", coverFooter:true, coverBarText:"BÄRENREITER URTEXT",
+    coverSub:"巴洛克 · 小提琴协奏", coverC1:"#3a2a1c", coverC2:"#8a6a45",
     coverTx:15, coverTy:24, coverTSize:13, coverTGap:15, coverSubX:15, coverSubY:120
-  })
+  }),
 ];
 
 /* 谱单（合集）：以种子列表引用乐谱 */
 const SETS = [
   /* 原应用预置的唯一谱单，原样保留 */
   {name:"独奏会备选曲目", desc:"贝多芬奏鸣曲，含慢板乐章与终曲", seeds:[37]},
-  /* ---- 以下为演示数据集补充 ---- */
-  {name:"巴洛克复调训练", desc:"从平均律到哥德堡，逐步推进的复调练习路径", seeds:[11,29,547]},
-  {name:"肖邦夜曲全集", desc:"浪漫派夜曲体裁的完整梳理", seeds:[71,53,97]},
-  {name:"协奏曲舞台准备", desc:"三首大协奏曲，适合作为比赛与音乐会曲目", seeds:[331,433,419]},
-  {name:"初级入门曲集", desc:"车尔尼与小奏鸣曲，适合入门阶段", seeds:[479,491,503]}
+  /* 刻意让《夜曲集》不属于任何谱单，保留「无归属」这条分支的可演示性 */
+  {name:"协奏曲精选", desc:"维瓦尔第《四季》，适合作为比赛与音乐会曲目", seeds:[419]}
 ];
 
 /* =====================================================================
@@ -1045,7 +1244,7 @@ const ICON = {
   grid:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>',
   list:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>',
   sort:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16M4 17l3 3 3-3M17 20V4M14 7l3-3 3 3"/></svg>',
-  more:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>',
+  more:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2.2"/><circle cx="12" cy="12" r="2.2"/><circle cx="19" cy="12" r="2.2"/></svg>',
   back:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
   chev:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>',
   book:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 016.5 3H19v15H6.5A2.5 2.5 0 004 20.5z"/><path d="M4 20.5A2.5 2.5 0 016.5 18H19v3H6.5"/></svg>',
@@ -1279,9 +1478,9 @@ function renderMain(){
     </div>
     <div class="sectionhead">元数据</div>
     <div class="panel">
-      <div class="panelrow link" data-act="jumplib" data-dim="composer" data-v=""><span class="pico">${ICON.person}</span><span class="plabel">作曲家</span><span class="pval">${nComp} 位</span><span class="arrow">${ICON.chev}</span></div>
-      <div class="panelrow link" data-act="jumplib" data-dim="type" data-v=""><span class="pico">${ICON.book}</span><span class="plabel">曲目类型</span><span class="pval">${distinct("type")} 类</span><span class="arrow">${ICON.chev}</span></div>
-      <div class="panelrow link" data-act="jumplib" data-dim="instrument" data-v=""><span class="pico">${ICON.music}</span><span class="plabel">乐器</span><span class="pval">${distinct("instrument")} 种</span><span class="arrow">${ICON.chev}</span></div>
+      <div class="panelrow"><span class="pico">${ICON.person}</span><span class="plabel">作曲家</span><span class="pval">${nComp} 位</span></div>
+      <div class="panelrow"><span class="pico">${ICON.book}</span><span class="plabel">曲目类型</span><span class="pval">${distinct("type")} 类</span></div>
+      <div class="panelrow"><span class="pico">${ICON.music}</span><span class="plabel">乐器</span><span class="pval">${distinct("instrument")} 种</span></div>
     </div>
     <div class="sectionhead">设置</div>
     <div class="panel">
@@ -1372,7 +1571,6 @@ function openDetail(score){
     <div class="hero">
       <div class="thumb">
         <canvas data-thumb="${s.id}" data-dense="0"></canvas>
-        <button class="editbadge" data-act="edit" data-id="${s.id}" title="编辑">${ICON.edit}</button>
       </div>
       <div class="hbody">
         <div class="htitle">${esc(s.title)}</div>
@@ -1381,8 +1579,12 @@ function openDetail(score){
       </div>
     </div>
 
-    <button class="sharebtn" data-act="share" data-id="${s.id}">
-      <span class="ico">${ICON.share}</span>分享</button>
+    <div class="actionrow">
+      <button class="actbtn primary" data-act="openpdf" data-id="${s.id}">
+        <span class="ico">${ICON.open}</span>查看乐谱</button>
+      <button class="actbtn ghost" data-act="share" data-id="${s.id}">
+        <span class="ico">${ICON.share}</span>分享</button>
+    </div>
 
     <div class="sectionhead">元数据</div>
     <div class="panel" style="padding:0 14px">
@@ -1495,6 +1697,10 @@ function openSheet(kind, target){
   }else if(kind === "sort"){
     $("sheetTitle").textContent = "排序方式";
     $("sheet").classList.toggle("tall", false);
+  }else if(kind === "share"){
+    state.shareTarget = target || null;
+    $("sheetTitle").textContent = "分享乐谱";
+    $("sheet").classList.toggle("tall", true);
   }else if(kind === "more"){
     state.moreTarget = target || null;
     $("sheetTitle").textContent = "更多";
@@ -1568,6 +1774,7 @@ function renderSheet(){
   if(k === "import")  return renderImportSheet();
   if(k === "sort")    return renderSortSheet();
   if(k === "more")    return renderMoreSheet();
+  if(k === "share")   return renderShareSheet();
   if(k === "set")     return renderSetSheet();
 }
 
@@ -1575,8 +1782,6 @@ function renderMoreSheet(){
   const s = state.moreTarget;
   if(!s) return;
   $("sheetBody").innerHTML = `<div class="panel" style="padding:0 14px;margin:8px -14px 0">
-      <div class="panelrow" data-act="openpdf" data-id="${s.id}">
-        <span class="pico">${ICON.open}</span><span class="plabel">打开乐谱</span><span class="arrow">${ICON.chev}</span></div>
       <div class="panelrow" data-act="edit" data-id="${s.id}">
         <span class="pico">${ICON.edit}</span><span class="plabel">编辑元数据</span><span class="arrow">${ICON.chev}</span></div>
       <div class="panelrow" data-act="delete" data-id="${s.id}">
@@ -1774,6 +1979,53 @@ document.addEventListener("click", ev => {
     case "openpdf":
       doOpenPdf(scoreById(id)); break;
 
+    /* ---- 文件链路 ---- */
+
+    case "pickimages":
+      openPicker("image"); break;
+
+    case "pickpdf":
+      openPicker("pdf"); break;
+
+    case "sysclose":
+      closeSys(); break;
+
+    case "toggleimg": {
+      const i = +el.dataset.i;
+      if(state.picker.sel.has(i)) state.picker.sel.delete(i);
+      else state.picker.sel.add(i);
+      renderPicker();
+      break;
+    }
+
+    case "pickall": {
+      const pk = state.picker;
+      pk.sel = pk.sel.size === ALBUM_COUNT
+        ? new Set()
+        : new Set(Array.from({length:ALBUM_COUNT}, (_, i) => i));
+      renderPicker();
+      break;
+    }
+
+    case "confirmimg":
+      runImageImport([...state.picker.sel].sort((a, b) => a - b));
+      break;
+
+    case "pickpdffile":
+      runPdfImport(PDF_FILES.find(f => f.id === v));
+      break;
+
+    case "sharetarget":
+      // 真机上选完目标就交给系统了，这里给一句与系统等价的结果反馈
+      toast(pdfReady(state.shareTarget)
+        ? `已分享 PDF：${shareFileName(state.shareTarget)}`
+        : "已分享曲谱信息");
+      closeSheet();
+      break;
+
+    case "closereader":
+      closeReader(); break;
+
     case "more": {
       const s = scoreById(id);
       if(!s) break;
@@ -1803,31 +2055,9 @@ document.addEventListener("click", ev => {
 
     /**
      * 「我的」页元数据统计行 → 跳到乐谱库并按该维度筛选。
-     *
-     * 与上面的 "jump"（按首字母定位索引入口）语义不同，故单列一个动作名，
-     * 避免把两种「跳转」混在一个 case 里。
-     * 取值策略与 Compose 侧一致：作曲家进全局作曲家视图（不带取值），
-     * 另两维取当前曲库中出现频次最高的那个作为切入点。
-     */
-    case "jumplib": {
-      const dim = el.dataset.dim;
-      state.tab = "manage";
-      state.libTab = "scores";
-      state.groupBy = dim;
-      state.works = null;
-      if(dim === "composer"){
-        state.filters = {composer:new Set(), type:new Set(), instrument:new Set()};
-        toast("已打开乐谱库 · " + distinct("composer") + " 位作曲家");
-      } else {
-        const pick = topValue(dim);
-        state.filters = {composer:new Set(), type:new Set(), instrument:new Set()};
-        state.filters[dim] = new Set(pick ? [pick] : []);
-        toast(pick ? `已筛选：${DIM_LABEL[dim]} · ${pick}` : "已打开乐谱库");
-      }
-      renderMain();
-      break;
-    }
-
+    /* "jumplib" 已移除：「我的」页那三行元数据统计改成**纯展示**，
+       不再带跳转。原先点「乐器」会直接跳到乐谱库并筛掉一个具体取值，
+       用户看到的是「N 种乐器」却只能看到其中一种，语义对不上。 */
     case "openset": {
       const set = SETS[+el.dataset.i];
       if(set) openSheet("set", set);
@@ -1954,45 +2184,1119 @@ function doDelete(score){
 
 function doShare(score){
   if(!score) return;
-  if(score.filePath || score.assetPdf) toast("已分享 PDF：" + (score.filePath || score.assetPdf));
-  else toast("这份乐谱还没有 PDF 文件，已分享曲谱信息");
+  openSheet("share", score);
 }
 
 function doOpenPdf(score){
   if(!score) return;
-  if(score.filePath || score.assetPdf) toast("打开乐谱：" + (score.filePath || score.assetPdf));
-  else toast("这份乐谱还没有 PDF 文件，可在列表里导入");
+  // 原应用在这一层就把「没有文件」挡掉，不会进阅读器（MainActivity.kt 的 openPdf 分支）
+  if(!pdfReady(score)){ toast("这份乐谱还没有 PDF 文件，可在列表里导入"); return; }
+  closeSheet();
+  openReader(score);
+}
+
+/* =====================================================================
+   15. 文件链路：导入 / 落盘 / 打开 / 分享
+   ---------------------------------------------------------------------
+   本节的路径、文件名净化、页数口径与全部文案，逐条对译自反编译产物的
+   util/ImportUtil.kt、util/ShareUtil.kt、ui/components/PdfViewer.kt、
+   ui/components/PdfDocState.kt、data/PdfAssets.kt。
+
+   浏览器里没有文件系统，所以分两层处理：
+     · 「算得出真值」的部分按原规格实现成纯函数，可直接被回归测试断言
+       —— 标题归一、文件名净化、分享正文、失败文案、页数口径
+     · 「必须有真实 IO」的部分用模拟替代：系统选择器、文件实体账本 FILE_STORE
+       —— 选中的图片 / PDF 不产生真实读写，落盘的只是一条账本记录
+   ===================================================================== */
+
+/**
+ * 模拟的本地文件账本：绝对路径 → 字节数。
+ * 原应用判断「这份乐谱能不能打开 / 能不能分享」的判据是
+ * `file.exists() && file.length() > 0`，这里用账本等价还原。
+ */
+const FILE_STORE = new Map();
+
+/**
+ * 随包分发的内置 PDF（原应用 assets/scores/ 下唯一一份，启动时由 PdfAssets 拷到 files/scores/）。
+ *
+ * `data` 是一份**结构完整的真实 PDF 字节码**（2,670 B，`%PDF-1.7`，含一致的 xref 表），
+ * 第 0 页画的是乐谱纸面（五线谱 / 符头 / 符干 / 小节线 / 抬头）。
+ * 由 `tools/make_proto_pdf.py` 生成，改动请改脚本而不是手改这段 base64。
+ *
+ * 之所以要真字节而不是一个 size 占位：封面这条规格是「读文件首页 → 出位图 → Fit」，
+ * 没有字节就只能是声称。有了字节，`renderFirstPage` 才能真的解析、真的画出东西。
+ */
+const BUNDLED_PDF = {
+  name: "moonlight_op27_no2.pdf",
+  size: 881869,          // 原应用里这份 PDF 的真实大小（列表 / 详情页展示用）
+  data:
+      "JVBERi0xLjcKJeLjz9MKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwg"
+    + "L1R5cGUgL1BhZ2VzIC9LaWRzIFs1IDAgUl0gL0NvdW50IDEgL01lZGlhQm94IFswIDAgNTk1IDg0Ml0gL1Jlc291cmNlcyA8PCAv"
+    + "Rm9udCA8PCAvRjEgMyAwIFIgPj4gPj4gPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL0ZvbnQgL1N1YnR5cGUgL1R5cGUxIC9C"
+    + "YXNlRm9udCAvSGVsdmV0aWNhID4+CmVuZG9iago0IDAgb2JqCjw8IC9MZW5ndGggMjEwMiAvRmlsdGVyIC9GbGF0ZURlY29kZSA+"
+    + "PgpzdHJlYW0KeJyNWjuS5TYMzPcUOoFK/IsncO49wivbiZ1sstc3SDRAUDUjMvB4ewjgQRSAbvLNddY7HtdZS24/Uzl+/fPjOq4j"
+    + "1XRexx09/fz11/H3j+u8arO87mZ5lbtbnuE6fh+OUKn++O+IrvR//Xv8pMXiybRQuDPfx59/0G8yWcdMMctFQS7ySLEOyG5qlO96"
+    + "pmEE+DQq1UYCfBrle4rE8GmU7ikSQzb64uGdC2c1oZ1LZ3SUQDhTOJwvZ6wD3WetYvvR1RzOWNRTkI37+XLv+2bWtvXkesU5iYZD"
+    + "3/jvc8/x9G5ssMvpLIRr7NmWcpY6UG2vGbYfXb1jzxaegmzcVe7lPl02STAutDdBX07zyi1A9uRJ/7+bZ81ti8qVTp+aJ+Oc/FnS"
+    + "90/tXWyfpO/ZO3rtvO9XODy9o6sORFlVsf3oKn1ELeopyMZdPLWnN0QPZJJg7K/Tv7wxTzt7u1HtPucz8L63bGnrQh2onncV24+u"
+    + "Ui22bOEpyMZd5U6BaFKMJBgX2o37JfdAj+hMzweyz66/Pso20M7mqogq11Wx/chqq0XKFp6KbNxF7s3VxzkJ3zrHj33/utpCLO3x"
+    + "tNqAV9UWqDOimQ+B9r3qfAiFJwLQffE8QM/LKk8E8RRk466eujVvNkkwLlcePfZF7pF2tpgBTHO99zVPhEi94XU+xDZr6uh5WeWJ"
+    + "IJ6CbNxF7rGVVbRJME7udbZF2q3LdHnM5Uza5bFwXwPdjrsanSur3NfiKcjGXeVOgWo2SQATrd7v1Rbr3R5Pqw14VW3J9Tc62JD2"
+    + "/db5kDxPBKDgeB6g52WVJ4J4CrJxF0/dXGOck2g4utFjL6Ig3ZMoAHywdMqTKAB8GqVJFAA+jeIkCgCfRmESBYDfvgYqK5pP+vHU"
+    + "qo5g7ttOvEmTTUB/qzD8yFrqew4vABtxsf8UukTz6Qy9e2UW6A3dfKiRdPd5DKWiqM8l2KqOSaXPY/EUZOOutAAFot+OJBhnV16Z"
+    + "BXpD3yTUSNu6oWMUdR0DW9UxKQajYxTZuKvcyTXEOYmGndFgrzqmba7VMSls6RjtBKiRtu9JdYyiPtFgqzqmVWFUHaPIxl1pAQoU"
+    + "s0mCcb7KK7OAs7VGwejoCrC9INYCWvuyyo0hnoJs3BUr0qZc2SQBXPNqOoP79Y0JXrwxcLaWNxgdXQW2F8RaQPtGVrmrxFOQjbt6"
+    + "anJNcU6i4ehf5wM4W8sbjI6uAtsLYi2gfSOr3FXiKcjGXfEpBaI3MpIAvhc6hjlbixSMjt4A2wtiLaDVL6vcG+IpyMZd5U6uLs5J"
+    + "NBzcaj6A+7XaBC+qDZw9qIsZve370AKCWAvAVrVA+4ihBRTZuCstQKXgs0kCuBgF9KIFYp60AOCDnGOctADg0yhMWgDwaeQnLQD4"
+    + "NHKTFgBcaAF1YlaPPgwtIKC/VRiKFojODy0gwEZc7D9FSXl8OmBK73zKnK1bBkaPMRotoKjPJdiqFoghGC2gyMbdu9OYkmj4WugY"
+    + "5mwtHDB6zKxcmO0VdS0AW9UCMbFygacgG3fvTmMkAVzLilnA/S1BqwXam9/QAlq/YPS270MLKOoTDbaqBVoVDi2gyMbdu9MwSXQc"
+    + "6vstFO4etItxM9H2PemdhqI+l2CrdxqtFqPeaSiycffuNEYSwPeWjtH+ghpBR0OpCGIdo30rq9zU4inIxt2705iSINwUxN6dhlab"
+    + "4EW1QW9oa0KNYCJAqQhiHaM9L6s8EcRTkI27d6cxkgAu77dQ0BvamlAjmAhQKoJYx2jPyypPBPEUZOPu3WmYJBj7dw0G5h18x7yM"
+    + "3gBnC2JG1+qXVe4N8RRk4+6d7qckGnZGx7wweogTowM+KLYpccPDgE8jNzE64NPomhgd8GHk68TogAtG1xyZm0Po286sLaAzOgyF"
+    + "0YPvew4vABtx63Q/Pr1DX99vw8BeumXgtvbxgxUVdVaErbJicMGwoiIbd++EPCVB2N9uNafAgiHOrOjrFitqyYHbWphx06+osyJs"
+    + "lRXbmxw3/Yps3L0T8kgCuLzfaYC9tH7BbW3fBysq6r0NW2XFcAXDiops3FXu9IZozSTRsS/vjA720hoFt6ErwHuCmBW19mWVG0M8"
+    + "Bdm4e6f7kQRwXn6vBBbUagNeVRvYS4cJuK3t+2BFQcyKsFVWbB8xWFGRjbt3up+SaDi/f68E9tLWBLdhIoD3BDEras/LKk8E8RRk"
+    + "4+6d7kcSwGnB6HwK1wbDGR19jfO7ID7da+fKKve1eAqycfdO91MSDV/L75VwmtdqA15VGzh78BszOiYC2F4QawHteVnliSCegmzc"
+    + "vdP9SAI4mvuYFy3g/aQFAJ/kfE1aAPBh5OqkBQCfRvekBQCfRmXSAoALLaCRmdVdDUMLCOhvFYaiBdwdhhYQYCNune710xl6/34b"
+    + "hlO47ivO6J3U9HSviOfSJd/6Y/WK5i8WFNm4e6f7KQnCrmzpGH1JUCNt64aOUdR1DGxVx7jijY5RZOPune5HEozbcXfvdO/9rGNa"
+    + "Ehs6RoscaqTt+9AxivpEg63qmFaFQ8cosnH3TvcmCcb5/T4GekNbHWqkbcH4iwVFfS7BVnVMS3P8xYIiG3fvdD+SAE7vGkyYV4pU"
+    + "eJl7QzgbCIwu1S+r3BviKcjG3TvnjiSA4/vNBJhXixS8jN4AZwtiRtfql1XuDfEUZOPunXNNEozjQo0w82qpgZdR4eBsQczoWsNY"
+    + "RYXDU5GNu/fd/UiCsQ/Lb4eEwf3M6KsuB/MOUmReRm+AswUxo2v1yyr3hngKsnH3TvdTEoTdbXRMDcf4QU/tjt/023S0/1KN/S8G"
+    + "Hf/F4M//AcgK6mUKZW5kc3RyZWFtCmVuZG9iago1IDAgb2JqCjw8IC9UeXBlIC9QYWdlIC9QYXJlbnQgMiAwIFIgL0NvbnRlbnRz"
+    + "IDQgMCBSID4+CmVuZG9iagp4cmVmCjAgNgowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMTUgMDAwMDAgbiAKMDAwMDAwMDA2"
+    + "NCAwMDAwMCBuIAowMDAwMDAwMTg0IDAwMDAwIG4gCjAwMDAwMDAyNTQgMDAwMDAgbiAKMDAwMDAwMjQyOSAwMDAwMCBuIAp0cmFp"
+    + "bGVyCjw8IC9TaXplIDYgL1Jvb3QgMSAwIFIgPj4Kc3RhcnR4cmVmCjI0OTIKJSVFT0YK",
+};
+
+/** 取这份乐谱指向的 PDF 路径：优先 filesDir 下的拷贝，其次内置资源 */
+function pdfPathOf(score){
+  const p = score && (score.filePath || score.assetPdf);
+  return String(p == null ? "" : p).trim() || null;
+}
+
+/** 解析成绝对路径后查账本（原应用拿的是 filesDir/scores/ 下的真实路径） */
+function resolvePdfPath(score){
+  const p = pdfPathOf(score);
+  if(!p) return null;
+  return p.indexOf("/") >= 0 ? p : `files/scores/${p}`;
+}
+
+function fileExists(path){
+  return !!path && (FILE_STORE.get(path) || 0) > 0;
+}
+
+/** 这份乐谱是否有可打开 / 可分享的 PDF 实体 */
+function pdfReady(score){
+  return fileExists(resolvePdfPath(score));
+}
+
+function fmtBytes(n){
+  if(!n || n <= 0) return "—";
+  if(n < 1024) return n + " B";
+  if(n < 1024 * 1024) return (n / 1024).toFixed(0) + " KB";
+  return (n / 1024 / 1024).toFixed(1) + " MB";
+}
+
+/* =====================================================================
+   4.1 文件首页 → 封面位图
+   对译自原应用 ui/components/Thumb.kt 的 loadThumbBitmap / renderFirstPage
+   与 ThumbCache。
+
+   规格（逐条对应）：
+     · 只有「有实体文件」的乐谱才走这条路，否则退回程序化绘制（drawEngrave/drawCover）；
+     · PDF 走页面渲染：取第 0 页，按 min(640 / 页宽, 1.4) 缩放，底色填白；
+     · 非 PDF（相册导入的图）走普通位图解码；
+     · 拿到位图 → 状态 1（成功）；渲染返回 null → 状态 2（失败，叠「预览加载失败」）；
+     · 缓存：路径 → 位图，上限 12 MB，按 width*4*height 估体积（ThumbCache 口径）。
+   ===================================================================== */
+
+/** 封面目标宽度（Thumb.kt: THUMB_WIDTH = 640） */
+const THUMB_WIDTH = 640;
+/** 放大幅度上限（Thumb.kt: coerceAtMost(640f / pageWidth, 1.4f)） */
+const THUMB_MAX_UPSCALE = 1.4;
+/** 封面缓存上限 12582912 B = 12 MB（ThumbCache.MAX） */
+const THUMB_CACHE_MAX = 12582912;
+
+/** 路径 → 位图（Canvas）。用 Map 的插入序做粗糙 LRU，够还原原应用行为 */
+const THUMB_CACHE = new Map();
+let THUMB_CACHE_BYTES = 0;
+
+/**
+ * 封面加载状态：0 未加载 / 1 成功 / 2 失败。
+ * 对应 `ThumbKt$Thumb$1$1$1` 里的 `state = imageBitmap == null ? 2 : 1`。
+ */
+const CoverLoad = { Idle: 0, Loaded: 1, Failed: 2 };
+/** 乐谱 id → 封面加载态 */
+const coverState = new Map();
+
+function thumbCachePut(path, bmp){
+  const cost = bmp.width * 4 * bmp.height;
+  if(THUMB_CACHE.has(path)){
+    THUMB_CACHE_BYTES -= THUMB_CACHE.get(path).width * 4 * THUMB_CACHE.get(path).height;
+    THUMB_CACHE.delete(path);
+  }
+  THUMB_CACHE.set(path, bmp);
+  THUMB_CACHE_BYTES += cost;
+  // 逐出最旧的，直到回到预算内
+  while(THUMB_CACHE_BYTES > THUMB_CACHE_MAX && THUMB_CACHE.size > 1){
+    const oldest = THUMB_CACHE.keys().next().value;
+    const old = THUMB_CACHE.get(oldest);
+    THUMB_CACHE_BYTES -= old.width * 4 * old.height;
+    THUMB_CACHE.delete(oldest);
+  }
 }
 
 /**
- * 导入一份乐谱：真正写入曲库，而不是只弹一句提示。
- *
- * 原先导入路径只 toast、不落库（`SCORE_SEQ` / `mk` 的分配能力因此被闲置），
- * 用户点完「从相册选择图片」列表里什么都不会多出来。
- * 这里复用 `mk` 分配新 id 并登记添加时间，同时补上虚拟的 filePath，
- * 使分享 / 打开 PDF 有文件可指。
- *
- * @param {boolean} fromAlbum  true 表示来自相册图片合成，false 表示直接选中的 PDF
- * @param {number}  pageCount  页数（相册合成通常多页）
+ * 造一个**可绘制**的位图载体。
+ * 浏览器里没有 PdfRenderer，也无法把 PDF 字节交给 Canvas 直接画，
+ * 所以这里按 PDF 规格做最小解析：解压内容流 → 逐条读绘图指令 → 落到 Canvas。
+ * 覆盖的是本原型内置 PDF 用到的那一小组算子（re/f/S/m/l/c/w/rg/RG），
+ * 不是通用 PDF 渲染器 —— 这点写进演示边界，不假装是。
  */
-function importScore(fromAlbum, pageCount){
-  const stamp = Date.now();
-  const shortStamp = String(stamp).slice(-6);
-  const title = fromAlbum ? `相册乐谱 · ${shortStamp}` : `本地乐谱_${shortStamp}`;
+function newCoverBitmap(w, h){
+  const cv = (typeof document !== "undefined" && document.createElement)
+    ? document.createElement("canvas") : null;
+  if(!cv) return null;
+  cv.width = Math.max(1, Math.round(w));
+  cv.height = Math.max(1, Math.round(h));
+  return cv;
+}
+
+/* ---- 最小 PDF 解析：只做「够画出内置 PDF 首页」所必需的那部分 ---- */
+
+/** 从 PDF 字节里取出第 `pageIndex` 页的内容流（已解 FlateDecode） */
+function pdfPageContent(pdf, pageIndex){
+  // 注意：不能用 /stream\r?\n/ —— 它会把 `endstream\n` 也匹配上（`end` 后面就是 `stream`），
+  // 于是第二圈循环会盖掉第一圈的结果。「stream」前必须是空白或 `>>`，不能是字母。
+  const re = /(?:^|[^A-Za-z])stream\r?\n/g;
+  let m, index = 0;
+  while((m = re.exec(pdf.raw))){
+    const start = m.index + m[0].length;
+    const end = pdf.raw.indexOf("endstream", start);
+    if(end < 0) break;
+    if(index === pageIndex){
+      const dictStart = pdf.raw.lastIndexOf("<<", m.index);
+      const dict = pdf.raw.slice(dictStart, m.index);
+      // 从**原始字节数组**切片，不能从字符串切 ——
+      // `String.prototype.slice` 返回字符串，逐位取出来的是字符而不是 0-255 的码值，
+      // 后面 inflate 做位运算就会得到 NaN。
+      const bytes = pdf.bytes.slice(start, end);
+      return { dict, bytes };
+    }
+    index++;
+  }
+  return null;
+}
+
+/**
+ * 把内容流按算子切成可执行的小指令。
+ * 不建完整解析树：内容流里只有「操作数… 算子」两种东西，
+ * 顺序扫一遍、遇到算子就派发即可。
+ */
+function execPdfContent(streamText, c, mapPt){
+  const STOP = new Set(["S","s","f","F","f*","B","B*","b","b*","n","W","W*"]);
+  let ops = [];      // 数字/字符串操作数栈
+  // 路径用「线段 + 曲线」的有序指令表示；每条子路径以 M 开头。
+  // 注意：不能只攒点、把曲线压成折线 —— 符头是贝塞尔画的，
+  // 压成直线会变成一个尖角，看不出是符头。
+  let path = [];
+  let i = 0;
+  const len = streamText.length;
+
+  const num = () => { const n = parseFloat(ops[ops.length-1]); return isNaN(n) ? 0 : n; };
+
+  while(i < len){
+    const ch = streamText[i];
+    // 跳过空白
+    if(ch === " " || ch === "\n" || ch === "\r" || ch === "\t"){ i++; continue; }
+    // 注释
+    if(ch === "%"){ while(i < len && streamText[i] !== "\n") i++; continue; }
+    // 字符串字面量
+    if(ch === "("){
+      let j = i + 1, depth = 1, s = "";
+      while(j < len && depth > 0){
+        const d = streamText[j];
+        if(d === "\\"){ s += streamText[j+1] || ""; j += 2; continue; }
+        if(d === "(") depth++;
+        else if(d === ")") { depth--; if(!depth) break; }
+        s += d; j++;
+      }
+      ops.push(s); i = j + 1; continue;
+    }
+    // 名字对象 / 算子
+    if(/[A-Za-z*'"]/.test(ch)){
+      let j = i;
+      while(j < len && /[A-Za-z0-9*'"]/.test(streamText[j])) j++;
+      const tok = streamText.slice(i, j);
+      i = j;
+
+      // --- 路径构造算子：按 PDF 语义往当前路径里追加段 ---
+      if(tok === "m"){
+        const y = num(); ops.pop();
+        const x = num(); ops.pop();
+        path.push({ t:"M", p:[x, y] });
+        continue;
+      }
+      if(tok === "l"){
+        const y = num(); ops.pop();
+        const x = num(); ops.pop();
+        path.push({ t:"L", p:[x, y] });
+        continue;
+      }
+      if(tok === "re"){
+        const h = num(); ops.pop();
+        const w = num(); ops.pop();
+        const y = num(); ops.pop();
+        const x = num(); ops.pop();
+        // 矩形展开成 4 条线 + 闭合
+        path.push({ t:"M", p:[x, y] });
+        path.push({ t:"L", p:[x + w, y] });
+        path.push({ t:"L", p:[x + w, y + h] });
+        path.push({ t:"L", p:[x, y + h] });
+        path.push({ t:"L", p:[x, y] });
+        continue;
+      }
+      if(tok === "c"){
+        const y3 = num(); ops.pop(); const x3 = num(); ops.pop();
+        const y2 = num(); ops.pop(); const x2 = num(); ops.pop();
+        const y1 = num(); ops.pop(); const x1 = num(); ops.pop();
+        path.push({ t:"C", p:[[x1, y1], [x2, y2], [x3, y3]] });
+        continue;
+      }
+      if(tok === "v"){
+        const y3 = num(); ops.pop(); const x3 = num(); ops.pop();
+        const y2 = num(); ops.pop(); const x2 = num(); ops.pop();
+        // v: 第一控制点 = 当前点，由绘制时补
+        path.push({ t:"V", p:[[x2, y2], [x3, y3]] });
+        continue;
+      }
+      if(tok === "y"){
+        const y3 = num(); ops.pop(); const x3 = num(); ops.pop();
+        const y1 = num(); ops.pop(); const x1 = num(); ops.pop();
+        // y: 第二控制点 = 终点
+        path.push({ t:"Y", p:[[x1, y1], [x3, y3]] });
+        continue;
+      }
+      if(tok === "h"){ path.push({ t:"Z" }); continue; }
+
+      // --- 落墨算子：把攒下的路径铺到 canvas 上 ---
+      if(STOP.has(tok)){
+        if(path.length){
+          c.beginPath();
+          let cx = 0, cy = 0, started = false;
+          for(const seg of path){
+            if(seg.t === "M"){
+              const p = mapPt(seg.p[0], seg.p[1]);
+              c.moveTo(p[0], p[1]);
+              cx = seg.p[0]; cy = seg.p[1]; started = true;
+            }else if(seg.t === "L"){
+              const p = mapPt(seg.p[0], seg.p[1]);
+              c.lineTo(p[0], p[1]);
+              cx = seg.p[0]; cy = seg.p[1];
+            }else if(seg.t === "Z"){
+              c.closePath();
+            }else if(started){
+              const [[x1,y1],[x2,y2],[x3,y3]] = seg.p;
+              const P0 = mapPt(cx, cy);
+              let A, B, C;
+              if(seg.t === "C"){ A = mapPt(x1,y1); B = mapPt(x2,y2); C = mapPt(x3,y3); }
+              else if(seg.t === "V"){ A = P0; B = mapPt(x1,y1); C = mapPt(x2,y2); }
+              else { A = mapPt(x1,y1); B = mapPt(x2,y2); C = mapPt(x2,y2); }
+              c.bezierCurveTo(A[0],A[1], B[0],B[1], C[0],C[1]);
+              const last = seg.p[seg.p.length - 1];
+              cx = last[0]; cy = last[1];
+            }
+          }
+          const wantFill   = (tok === "f" || tok === "F" || tok === "f*" || tok === "B" || tok === "b");
+          const wantStroke = (tok === "S" || tok === "s" || tok === "B" || tok === "b");
+          if(wantFill) c.fill();
+          if(wantStroke) c.stroke();
+        }
+        path = [];
+        continue;
+      }
+      // 图形状态算子
+      if(tok === "rg"){ const b=num(); ops.pop(); const g=num(); ops.pop(); const r=num(); ops.pop();
+        c.fillStyle = `rgb(${Math.round(r*255)},${Math.round(g*255)},${Math.round(b*255)})`; continue; }
+      if(tok === "RG"){ const b=num(); ops.pop(); const g=num(); ops.pop(); const r=num(); ops.pop();
+        c.strokeStyle = `rgb(${Math.round(r*255)},${Math.round(g*255)},${Math.round(b*255)})`; continue; }
+      if(tok === "w"){ c.lineWidth = num(); ops.pop(); continue; }
+      if(tok === "k"){ const y=num();ops.pop();const m=num();ops.pop();const cc=num();ops.pop();const k=num();ops.pop();
+        c.fillStyle = `rgb(${Math.round((1-cc)*255)},${Math.round((1-m)*255)},${Math.round((1-y)*255)})`; continue; }
+      if(tok === "K"){ const y=num();ops.pop();const m=num();ops.pop();const cc=num();ops.pop();const k=num();ops.pop();
+        c.strokeStyle = `rgb(${Math.round((1-cc)*255)},${Math.round((1-m)*255)},${Math.round((1-y)*255)})`; continue; }
+      // 其余算子（q/Q/gs/cm/BT/ET/Tf/Td/Tj/…）本原型内置 PDF 未使用，忽略
+      continue;
+    }
+    // 数字（含负号、小数点）
+    if(/[-+.\d]/.test(ch)){
+      let j = i;
+      while(j < len && /[-+.\d]/.test(streamText[j])) j++;
+      ops.push(parseFloat(streamText.slice(i, j)));
+      i = j; continue;
+    }
+    i++;
+  }
+}
+
+/** 解 FlateDecode（浏览器原生 DecompressionStream，'deflate' 即 zlib 包装） */
+function inflateBytesSync(u8){
+  // 同步接口在浏览器里只有旧 API 可用；这里用一个极小纯 JS inflate 兜底，
+  // 避免依赖异步 DecompressionStream（它会迫使封面加载变成 Promise，改变时序语义）。
+  return rawInflate(u8);
+}
+
+/** 极简 INFLATE（只解 deflate 固定/动态 Huffman，不支持 preset dict） */
+function rawInflate(u8){
+  // 跳过 2 字节 zlib 头（0x78 xx），并丢弃尾部 4 字节 Adler-32
+  let p = 0;
+  const cmf = u8[p], flg = u8[p+1];
+  if((cmf & 0x0f) !== 8) throw new Error("不是 zlib/deflate 流");
+  p += 2;
+  if(flg & 0x20) p += 4;      // FDICT
+  const out = [];
+
+  let bitBuf = 0, bitCnt = 0;
+  const bits = (n) => {
+    while(bitCnt < n){ bitBuf |= u8[p++] << bitCnt; bitCnt += 8; }
+    const v = bitBuf & ((1 << n) - 1);
+    bitBuf >>>= n; bitCnt -= n;
+    return v;
+  };
+
+  const LBASE = [3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258];
+  const LEXT  = [0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0];
+  const DBASE = [1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577];
+  const DEXT  = [0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13];
+
+  function buildHuff(lengths){
+    const maxLen = Math.max(...lengths);
+    const blCount = new Array(maxLen+1).fill(0);
+    for(const l of lengths) if(l) blCount[l]++;
+    const nextCode = new Array(maxLen+1).fill(0);
+    let code = 0;
+    for(let i = 1; i <= maxLen; i++){ code = (code + blCount[i-1]) << 1; nextCode[i] = code; }
+    const map = new Map();
+    for(let sym = 0; sym < lengths.length; sym++){
+      const l = lengths[sym];
+      if(!l) continue;
+      map.set(l + ":" + nextCode[l], sym);
+      nextCode[l]++;
+    }
+    return { map, maxLen };
+  }
+  function decodeSym(h){
+    let code = 0;
+    for(let l = 1; l <= h.maxLen; l++){
+      code = (code << 1) | bits(1);
+      const s = h.map.get(l + ":" + code);
+      if(s !== undefined) return s;
+    }
+    throw new Error("Huffman 解码失败");
+  }
+
+  for(;;){
+    const last = bits(1), type = bits(2);
+    if(type === 0){                    // 存储块
+      bitBuf = 0; bitCnt = 0;
+      const len = u8[p] | (u8[p+1] << 8); p += 4;
+      for(let k = 0; k < len; k++) out.push(u8[p++]);
+    }else{
+      let lit, dist;
+      if(type === 1){
+        lit = buildHuff([...new Array(144).fill(8), ...new Array(112).fill(9),
+                         ...new Array(24).fill(7), ...new Array(8).fill(8)]);
+        dist = buildHuff(new Array(30).fill(5));
+      }else if(type === 2){
+        const hlit = bits(5) + 257, hdist = bits(5) + 1, hclen = bits(4) + 4;
+        const ORDER = [16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15];
+        const clLens = new Array(19).fill(0);
+        for(let k = 0; k < hclen; k++) clLens[ORDER[k]] = bits(3);
+        const clHuff = buildHuff(clLens);
+        const lens = [];
+        while(lens.length < hlit + hdist){
+          const sym = decodeSym(clHuff);
+          if(sym < 16) lens.push(sym);
+          else if(sym === 16){ const prev = lens[lens.length-1], n = 3 + bits(2); for(let k=0;k<n;k++) lens.push(prev); }
+          else if(sym === 17){ const n = 3 + bits(3); for(let k=0;k<n;k++) lens.push(0); }
+          else { const n = 11 + bits(7); for(let k=0;k<n;k++) lens.push(0); }
+        }
+        lit  = buildHuff(lens.slice(0, hlit));
+        dist = buildHuff(lens.slice(hlit));
+      }else throw new Error("未知块类型");
+
+      for(;;){
+        const sym = decodeSym(lit);
+        if(sym === 256) break;
+        if(sym < 256) out.push(sym);
+        else {
+          const li = sym - 257;
+          const length = LBASE[li] + bits(LEXT[li]);
+          const ds = decodeSym(dist);
+          const distance = DBASE[ds] + bits(DEXT[ds]);
+          const start = out.length - distance;
+          for(let k = 0; k < length; k++) out.push(out[start + k]);
+        }
+      }
+    }
+    if(last) break;
+  }
+  return out;
+}
+
+/** 把 PDF 字节解成可用的中间表示（惰性，只解析一次） */
+function parsePdf(rawBytes){
+  if(rawBytes.__parsed) return rawBytes.__parsed;
+  const lat = rawBytes.map(b => String.fromCharCode(b)).join("");
+  // `raw` 用于正则定位（字符串好找），`bytes` 用于真正切数据（必须是字节数组）
+  const parsed = { raw: lat, bytes: rawBytes, mediaBox: [0, 0, 595, 842] };
+  rawBytes.__parsed = parsed;
+  return parsed;
+}
+
+/**
+ * 渲染第 0 页 → 位图。
+ * 对应 `ThumbKt$renderFirstPage$2`：
+ *   · 先判是不是 PDF（后缀 / MIME）；
+ *   · PDF：开渲染器、取第 0 页、按 min(640/页宽, 1.4) 算缩放，ARGB 底色填白，再渲；
+ *   · 非 PDF：按普通位图解码（相册导入的图走这条）。
+ * 任何一步拿不到结果就返回 null，由调用方落到「预览加载失败」。
+ */
+function renderFirstPage(score){
+  const path = resolvePdfPath(score);
+  if(!path || !fileExists(path)) return null;
+
+  const isPdf = /\.pdf$/i.test(path);
+  if(!isPdf){
+    // 相册导入的图片：没有真实图片字节可解，按无封面处理
+    return null;
+  }
+
+  // 内置 PDF 有真实字节；用户导入的 PDF 在这个原型里没有字节可读
+  if(path !== `files/scores/${BUNDLED_PDF.name}`) return null;
+
+  try{
+    const b64 = BUNDLED_PDF.data;
+    const bin = (typeof atob === "function")
+      ? atob(b64)
+      : Buffer.from(b64, "base64").toString("binary");
+    const u8 = Array.from({ length: bin.length }, (_, i) => bin.charCodeAt(i) & 0xff);
+
+    const pdf = parsePdf(u8);
+    const streamBox = pdfPageContent(pdf, 0);
+    if(!streamBox) return null;
+
+    const inflated = inflateBytesSync(streamBox.bytes);
+    const text = inflated.map(b => String.fromCharCode(b)).join("");
+
+    // 页宽从 MediaBox 来；缩放口径与 Compose 侧一致
+    const [, , pw] = pdf.mediaBox;
+    const scale = Math.min(THUMB_WIDTH / pw, THUMB_MAX_UPSCALE);
+    const bw = Math.round(pw * scale);
+    const bh = Math.round(pdf.mediaBox[3] * scale);
+
+    const cv = newCoverBitmap(bw, bh);
+    if(!cv) return null;
+    const c = cv.getContext("2d");
+    if(!c) return null;
+
+    // 底色填白（原应用 eraseColor(-1)）
+    c.fillStyle = "#FFFFFF";
+    c.fillRect(0, 0, bw, bh);
+    c.lineJoin = "round";
+    c.lineCap = "round";
+
+    // PDF 用户空间原点在左下，Canvas 在左上 → 翻转 y
+    const mapPt = (x, y) => [x * scale, bh - y * scale];
+    execPdfContent(text, c, mapPt);
+    return cv;
+  }catch(e){
+    return null;
+  }
+}
+
+/**
+ * 取封面位图（带缓存）。对应 `ThumbKt.loadThumbBitmap`：
+ * 先查缓存，未命中就 renderFirstPage，拿到再写缓存。
+ */
+function loadCoverBitmap(score){
+  const path = resolvePdfPath(score);
+  if(!path) return null;
+  if(THUMB_CACHE.has(path)) return THUMB_CACHE.get(path);
+  const bmp = renderFirstPage(score);
+  if(bmp) thumbCachePut(path, bmp);
+  return bmp;
+}
+
+/**
+ * 驱动某张缩略图的加载态。对应 `ThumbKt$Thumb$1$1$1`：
+ * 加载完之后 `state = bmp == null ? 2 : 1`。
+ * 返回 CoverLoad.* 之一。
+ */
+function resolveCoverState(score){
+  if(coverState.has(score.id)) return coverState.get(score.id);
+  const bmp = loadCoverBitmap(score);
+  const st = bmp ? CoverLoad.Loaded : CoverLoad.Failed;
+  coverState.set(score.id, st);
+  return st;
+}
+
+/* ---- 纯函数：原应用 util/ImportUtil.kt ---- */
+
+/**
+ * 选中 PDF 后的标题：读文件的显示名（`_display_name`），去掉 `.pdf` 后缀；
+ * 读不到或为空则回退「导入乐谱」。对应 `ImportUtil.pdfTitle`。
+ */
+function pdfImportTitle(displayName){
+  const base = String(displayName == null ? "" : displayName).trim() || "导入乐谱";
+  return /\.pdf$/i.test(base) ? base.slice(0, -4) : base;
+}
+
+/**
+ * 落盘文件名：`import_<标题净化>_<时间戳>.pdf`。
+ * 净化规则取自 `ImportUtil.copyPdfToLocal`：非 `[\w\u4e00-\u9fa5.-]` 一律换成 `_`，再截前 40 字。
+ * 净化的意义是把「《夜曲集》Op.9」这类带书名号的标题变成可用的文件名。
+ */
+function importFileName(title, stamp){
+  const safe = String(title == null ? "" : title)
+    .replace(/[^\w\u4e00-\u9fa5.-]/g, "_")
+    .slice(0, 40);
+  return `import_${safe}_${stamp}.pdf`;
+}
+
+/** 相册合成的落盘文件名与标题：标题口径是「相册乐谱 · N 页」（ImportUtil.imagesToPdf 的调用方） */
+function albumImportTitle(pages){
+  return `相册乐谱 · ${pages} 页`;
+}
+
+/**
+ * 相册多图 → 单份 A4 PDF 的结果归一。
+ * 对应 `ImportUtil.imagesToPdf` 的 ImportResult(path, pages, sourceCount, error)：
+ *   · 一张都没选   → 没有选择任何图片
+ *   · 全部读不出   → 所选 N 张图片都无法读取
+ *   · 部分读不出   → 仍出 PDF，附带「有 X 张图片无法读取，已跳过」
+ *   · 生成的 PDF 解析不出页数 → 生成的 PDF 无法解析（视为失败，丢弃）
+ * 每张 A4 页按 595 × 842 pt 居中排版、最长边压到 1400 px。
+ */
+function imagesToPdf(uris){
+  const list = uris || [];
+  if(!list.length) return { path:null, pages:0, sourceCount:0, error:"没有选择任何图片" };
+  const ok = list.filter(u => !albumImageBroken(u));
+  const skipped = list.length - ok.length;
+  if(!ok.length){
+    return { path:null, pages:0, sourceCount:list.length, error:`所选 ${list.length} 张图片都无法读取` };
+  }
+  const pages = ok.length;
+  const title = albumImportTitle(pages);
+  const path = `files/scores/${importFileName(title, Date.now())}`;
+  return {
+    path, pages, sourceCount:list.length,
+    error: skipped ? `有 ${skipped} 张图片无法读取，已跳过` : null,
+  };
+}
+
+/* ---- 纯函数：原应用 util/ShareUtil.kt ---- */
+
+/**
+ * 分享出去的文件名：标题去首尾空白，空则「乐谱」，
+ * 再把 `\ / : * ? " < > |` 换成 `_`，补 `.pdf`。对应 `ShareUtil.shareName`。
+ */
+function shareFileName(score){
+  let s = String((score && score.title) || "").trim();
+  if(!s) s = "乐谱";
+  return s.replace(/[\\/:*?"<>|]/g, "_") + ".pdf";
+}
+
+/**
+ * 分享正文。逐行对应 `ShareUtil.summary`：
+ *   标题 / 作曲家（空则省）/ `类型 · 乐器 · 时期 · 难度`（剔除空值与 `—`）/
+ *   `共 N 页`（N>0 时）/ `来源：X`（空与 `—` 除外）/ 尾部署名。
+ */
+function shareSummary(score){
+  if(!score) return "";
+  const lines = [score.title];
+  if(String(score.composer || "").trim()) lines.push(score.composer);
+  const meta = [score.type, score.instrument, score.period, score.level]
+    .filter(x => String(x == null ? "" : x).trim() && x !== "—");
+  if(meta.length) lines.push(meta.join(" · "));
+  if(score.pages > 0) lines.push(`共 ${score.pages} 页`);
+  if(String(score.source || "").trim() && score.source !== "—") lines.push(`来源：${score.source}`);
+  lines.push("—— 由「乐谱管理」分享");
+  return lines.join("\n");
+}
+
+/* ---- 模拟的系统选择器数据 ---- */
+
+/** 相册里的照片：24 张，其中一部分是「拍糊/截断」的坏图，用来驱动跳过分支 */
+const ALBUM_COUNT = 24;
+/** 模拟「下载 / 文档」目录下的 PDF */
+const PDF_FILES = [
+  { id:"p1", name:"巴赫_平均律键盘曲集第一卷.pdf", size:12048128, pages:96 },
+  { id:"p2", name:"肖邦_夜曲集_Henle原版.pdf",      size: 6471300, pages:88 },
+  { id:"p3", name:"德彪西_版画集_Durand版.pdf",     size: 2091520, pages:22 },
+  { id:"p4", name:"扫描件_20260917_0012.pdf",       size:14680064, pages:12 },
+  { id:"p5", name:"空白扫描件_未识别.pdf",           size: 3145728, pages:0  },
+  { id:"p6", name:"损坏_下载未完成.pdf",             size:       0, pages:0, broken:true },
+];
+
+/** 第 i 张相册图是否读不出来（每 8 张坏 1 张，可在网格上看到警示标记） */
+function albumImageBroken(i){ return i % 8 === 7; }
+
+/* ---- 模拟系统选择器 ---- */
+
+function openPicker(kind){
+  closeSheet();
+  state.picker = { kind, sel:new Set() };
+  renderPicker();
+  $("sysLayer").classList.add("on");
+}
+
+function closeSys(){
+  state.picker = null;
+  $("sysLayer").classList.remove("on");
+}
+
+function renderPicker(){
+  const pk = state.picker;
+  if(!pk) return;
+  const el = $("sysLayer");
+
+  if(pk.kind === "image"){
+    el.innerHTML = `
+      <div class="sysbar">
+        <button data-act="sysclose">取消</button>
+        <h4>最近项目</h4>
+        <span class="sub">可多选</span>
+      </div>
+      <div class="sysgrid">
+        ${Array.from({length:ALBUM_COUNT}, (_, i) => {
+          const on = pk.sel.has(i);
+          return `<div class="syscell ${on?"on":""}" data-act="toggleimg" data-i="${i}">
+            <canvas data-album="${i}"></canvas>
+            ${albumImageBroken(i) ? `<span class="badmark" title="这张图片读不出来">!</span>` : ""}
+            <span class="pick"></span>
+            <span class="idx">${on ? [...pk.sel].indexOf(i) + 1 : ""}</span>
+          </div>`;
+        }).join("")}
+      </div>
+      <div class="sysfoot">
+        <button class="btn ghost wide" data-act="pickall">全选</button>
+        <button class="btn primary wide" data-act="confirmimg">${pk.sel.size ? `合成 PDF（${pk.sel.size}）` : "合成 PDF"}</button>
+      </div>`;
+  }else{
+    el.innerHTML = `
+      <div class="sysbar">
+        <button data-act="sysclose">取消</button>
+        <h4>下载</h4>
+        <span class="sub">按名称排序</span>
+      </div>
+      <div class="syslist">
+        ${PDF_FILES.map(f => `
+          <div class="sysrow" data-act="pickpdf" data-v="${f.id}">
+            <span class="fi">${ICON.file}</span>
+            <span class="fm">
+              <h5>${esc(f.name)}</h5>
+              <p>${f.broken ? "0 B · 无法读取" : `${fmtBytes(f.size)}${f.pages ? ` · ${f.pages} 页` : " · 0 页"}`}</p>
+            </span>
+            <span class="chev">${ICON.chev}</span>
+          </div>`).join("")}
+      </div>`;
+  }
+  paintAlbumThumbs();
+}
+
+/** 相册格子里的「翻拍乐谱」缩略图：确定性绘制，同一格永远同一张 */
+function paintAlbumThumbs(){
+  document.querySelectorAll("canvas[data-album]").forEach(cv => {
+    const i = +cv.dataset.album;
+    const w = cv.clientWidth || 118, h = cv.clientHeight || 118;
+    cv.width = w; cv.height = h;
+    const c = cv.getContext("2d");
+    const r = rng(i * 977 + 13);
+    // 桌面底色
+    const hue = Math.round(r() * 360);
+    c.fillStyle = `hsl(${hue}, 12%, ${62 + Math.round(r() * 12)}%)`;
+    c.fillRect(0, 0, w, h);
+    // 翻拍的乐谱纸：轻微旋转 + 暖白色
+    c.save();
+    c.translate(w / 2, h / 2);
+    c.rotate((r() - 0.5) * 0.22);
+    const pw = w * 0.66, ph = h * 0.82;
+    c.fillStyle = albumImageBroken(i) ? "#EDE6DC" : "#FBF9F4";
+    c.shadowColor = "rgba(0,0,0,.22)"; c.shadowBlur = 7; c.shadowOffsetY = 2;
+    c.fillRect(-pw / 2, -ph / 2, pw, ph);
+    c.shadowColor = "transparent";
+    // 谱表线
+    c.strokeStyle = "rgba(17,17,19,.30)";
+    c.lineWidth = Math.max(1, w * 0.006);
+    const rows = 5, sysH = ph * 0.15;
+    for(let s = 0; s < rows; s++){
+      const y0 = -ph / 2 + ph * 0.16 + s * sysH;
+      for(let k = 0; k < 5; k++){
+        c.beginPath();
+        c.moveTo(-pw * 0.4, y0 + k * (sysH / 7));
+        c.lineTo(pw * 0.4, y0 + k * (sysH / 7));
+        c.stroke();
+      }
+      // 若干音符头
+      for(let n = 0; n < 7; n++){
+        const x = -pw * 0.38 + n * pw * 0.11 + (r() - 0.5) * 3;
+        const yy = y0 + Math.round(r() * 4) * (sysH / 7);
+        c.beginPath();
+        c.ellipse(x, yy, w * 0.014, w * 0.010, -0.4, 0, Math.PI * 2);
+        c.fillStyle = "rgba(17,17,19,.66)";
+        c.fill();
+      }
+    }
+    c.restore();
+    if(albumImageBroken(i)){
+      // 坏图：叠一层灰噪，肉眼可辨「这张读不出来」
+      c.fillStyle = "rgba(120,120,128,.42)";
+      c.fillRect(0, 0, w, h);
+    }
+  });
+}
+
+/* ---- 导入：图片合成 / PDF 直选 ---- */
+
+function showBusy(title, sub){
+  $("busyTitle").textContent = title;
+  $("busySub").textContent = sub || "";
+  $("busy").classList.add("on");
+}
+function hideBusy(){ $("busy").classList.remove("on"); }
+
+/**
+ * 执行「相册图片 → PDF」导入。
+ * 文案对应 MainActivityKt 的图片回调：
+ *   成功 → `已生成 PDF 并加入乐谱库：N 页`，有跳过时追加 `（有 X 张图片无法读取，已跳过）`
+ *   失败 → 直接弹 ImportResult.error
+ */
+function runImageImport(uris){
+  closeSys();
+  if(!uris.length){ toast("没有选择任何图片"); return; }
+  showBusy("正在合成 PDF…", `${uris.length} 张图片 · A4 595 × 842 pt · 最长边 1400 px`);
+  setTimeout(() => {
+    const res = imagesToPdf(uris);
+    hideBusy();
+    if(!res.path || res.pages <= 0){ toast(res.error); return; }
+    importScore("album", res.pages, { filePath:res.path, size:res.pages * 420000 });
+    toast(`已生成 PDF 并加入乐谱库：${res.pages} 页` + (res.error ? `（${res.error}）` : ""));
+  }, 900);
+}
+
+/**
+ * 执行「选择 PDF」导入。文案对应 MainActivityKt 的 PDF 回调：
+ *   成功 → `已导入 PDF：<标题>`；拷不出来 → `导入失败，无法读取所选文件`
+ */
+function runPdfImport(file){
+  closeSys();
+  if(!file) return;
+  if(file.broken || file.size <= 0){ toast("导入失败，无法读取所选文件"); return; }
+  showBusy("正在拷贝文件…", file.name);
+  setTimeout(() => {
+    hideBusy();
+    const title = pdfImportTitle(file.name);
+    const path = `files/scores/${importFileName(title, Date.now())}`;
+    importScore("pdf", file.pages, { title, filePath:path, size:file.size });
+    toast(`已导入 PDF：${title}`);
+  }, 700);
+}
+
+/**
+ * 导入一份乐谱并落库（置顶），返回新建的乐谱。
+ *
+ * 与原应用的两处对齐：
+ *   · 标题：相册合成走「相册乐谱 · N 页」；PDF 直选走文件的显示名（去 .pdf 后缀）
+ *   · 来源：两条路径都写 `本地导入`（原应用没有「相册导入」这个来源取值）
+ *
+ * 提示语由调用方负责 —— 两条路径的成功文案不同，且失败时压根不该落库。
+ *
+ * @param {"album"|"pdf"} kind
+ * @param {number} pages   页数；PDF 解析不出页数时为 0
+ * @param {object} extra   { title, filePath, size, dateAdded }
+ */
+function importScore(kind, pages, extra){
+  extra = extra || {};
+  const stamp = extra.dateAdded || Date.now();
+  const isAlbum = kind === "album";
+  const pageCount = pages > 0 ? pages : 0;
+  const title = extra.title || (isAlbum ? albumImportTitle(pageCount) : "导入乐谱");
+  const path = extra.filePath || `files/scores/${importFileName(title, stamp)}`;
+  FILE_STORE.set(path, extra.size || 512000);
   const score = mk(
-    title, "佚名", "未编目", "未分类", "未指定", "—",
-    fromAlbum ? "相册导入" : "本地导入",
-    pageCount > 0 ? pageCount : 1,
+    title, "佚名", "未编目", "未分类", "未指定", "—", "本地导入", pageCount,
     {
       dateAdded: stamp,
-      filePath: `files/scores/import_${title}_${stamp}.pdf`,
-      thumbRows: pageCount >= 6 ? 6 : (pageCount <= 3 ? 3 : 5)
+      filePath: path,
+      thumbRows: pageCount >= 6 ? 6 : (pageCount <= 3 ? 3 : 5),
     }
   );
   // 新导入的乐谱置顶，符合「最近添加」的直觉
   SCORES.unshift(score);
-  toast(`已加入乐谱库：${title}`);
+  if(state.tab !== "manage" || state.libTab !== "scores"){ state.tab = "manage"; state.libTab = "scores"; }
   renderMain();
+  return score;
+}
+
+/* =====================================================================
+   16. PDF 阅读器
+   ---------------------------------------------------------------------
+   对应 ui/components/PdfViewer.kt。结构、状态与数值口径都按反编译产物还原：
+
+   顶栏      Row(padding 12×8, Start, CenterVertically)
+              CircleIcon(arrowBack,"返回") + 4dp + Column(weight 1)[标题 15sp Bold /
+              共 N 页（无页数时「读取中…」）11.5sp Text3] + PageBadge
+   页码徽标  Surface(Surface, 10dp 圆角)，文字 `N 页` 11.5sp，padding 9×5
+   正文四态  error → StateBox(error) / renderer==null → 居中转圈
+              / pageCount==0 → StateBox("这份 PDF 没有任何页面") / 否则 PageBody
+   PageBody  HorizontalPager + 每页 Surface(10dp 圆角) 内的 Image(Fit)
+              悬浮页码 `当前 / 总页`（颜色 Text1@72%，12dp 圆角，底部 14dp；仅多于 1 页时出现）
+   缩放      detectTransformGestures → scale 夹在 1f..4f；
+              offset 只在 scale > 1 时累加，回到 1 时归零
+   渲染宽度  clamp(toPx(可用宽), 700, 1200) px —— 最小 700 是渲染位图的宽度下限
+   ===================================================================== */
+
+/** A4 纵横比：原应用 A4 排版与 PdfRenderer 输出的纸面比例 */
+const PAGE_RATIO = 842 / 595;
+/** 渲染位图宽度下限（原应用的 700..1200 夹取） */
+const RENDER_W = 700;
+
+function openReader(score, forcePhase){
+  const path = resolvePdfPath(score);
+  state.reader = {
+    score, path,
+    title: score.title,
+    pageCount: 0,          // 0 等价于原应用的「renderer 还没就绪」
+    page: 0,
+    zoom: 1, panX: 0, panY: 0,
+    phase: "loading",
+    error: null,
+  };
+  if(forcePhase === "error"){
+    state.reader.phase = "error";
+    state.reader.error = "无法打开这份乐谱：文件已损坏或格式不受支持";
+  }else if(forcePhase === "empty"){
+    state.reader.phase = "empty";
+  }else if(forcePhase === "loading"){
+    /* 停在加载态，供演示 */
+  }else{
+    // 原应用是先 open() 拿页数再渲染，这里用一次短延时表现这个「读取中…」窗口
+    setTimeout(() => {
+      if(!state.reader || state.reader.phase !== "loading") return;
+      state.reader.pageCount = score.pages > 0 ? score.pages : 0;
+      state.reader.phase = state.reader.pageCount > 0 ? "ready" : "empty";
+      renderReader();
+    }, 620);
+  }
+  renderReader();
+  $("crash").classList.remove("on");
+  $("readerLayer").classList.add("on");
+}
+
+function closeReader(){
+  state.reader = null;
+  $("readerLayer").classList.remove("on");
+}
+
+/* ---- 阅读器顶栏文案：对译 domain/ReaderBarText.kt ----
+ *
+ * 这两处是原应用的瑕疵所在，本实现刻意改正：
+ *   ② 副标题「共 N 页」与徽标「N 页」说的是同一件事，重复。现改为
+ *      副标题只在就绪态报页数，徽标独立保留（原应用视觉如此），
+ *      但两者不得同时为空、也不得同时说「读取中」。
+ *   ③ `pageCount == 0` 时副标题仍是「读取中…」，而正文已经在说
+ *      「这份 PDF 没有任何页面」——顶栏说还在读、正文说读完了。
+ *      现按四态分别给词：loading→读取中…、failed→无法打开、
+ *      empty→没有页面、ready→共 N 页。空文档不再冒充「读取中」。
+ */
+const READER_LOADING_TEXT = "读取中…";
+const READER_FAILED_TEXT = "无法打开";
+const READER_EMPTY_TEXT = "没有页面";
+
+/** 副标题：按四态给词，空文档不再显示「读取中…」 */
+function readerSubtitle(phase, pageCount){
+  if(phase === "loading") return READER_LOADING_TEXT;
+  if(phase === "error") return READER_FAILED_TEXT;
+  if(phase === "empty") return READER_EMPTY_TEXT;
+  return pageCount > 0 ? `共 ${pageCount} 页` : READER_EMPTY_TEXT;
+}
+
+/** 页数徽标：只有就绪态且页数大于 0 才出现 */
+function readerBadge(phase, pageCount){
+  if(phase !== "ready" || !(pageCount > 0)) return null;
+  return `${pageCount} 页`;
+}
+
+function renderReader(){
+  const r = state.reader;
+  if(!r) return;
+  const known = r.phase !== "loading";
+  const sub = readerSubtitle(r.phase, r.pageCount);
+  const badge = readerBadge(r.phase, r.pageCount);
+
+  let body = "";
+  if(r.phase === "loading"){
+    body = `<div class="readerload"><div class="ring"></div></div>`;
+  }else if(r.phase === "error"){
+    body = `<div class="statebox">${esc(r.error)}</div>`;
+  }else if(r.phase === "empty"){
+    body = `<div class="statebox">这份 PDF 没有任何页面</div>`;
+  }else{
+    body = `<div class="pager on" id="pager">
+        <div class="sheetpage" id="sheetPage"><canvas id="pageCanvas"></canvas></div>
+      </div>
+      ${r.pageCount > 1 ? `<div class="pagedots" id="pageDots">${r.page + 1} / ${r.pageCount}</div>` : ""}
+      <div class="zoomhint" id="zoomHint" style="display:${r.zoom > 1 ? "block" : "none"}">
+        ${Math.round(r.zoom * 100)}%</div>`;
+  }
+
+  $("readerLayer").innerHTML = `
+    <div class="readerbar">
+      <button class="rback" data-act="closereader" title="返回">${ICON.back}</button>
+      <div class="rt"><b>${esc(r.title)}</b><span>${sub}</span></div>
+      ${badge ? `<span class="pagebadge">${badge}</span>` : ""}
+    </div>
+    <div class="readerbody" id="readerBody">${body}</div>`;
+
+  if(r.phase === "ready"){ layoutReaderPage(); paintReaderPage(); }
+}
+
+/** 把纸面按可用区等比放好：高度优先贴合，宽度不够时按宽度反算 */
+function layoutReaderPage(){
+  const body = $("readerBody"), pg = $("sheetPage");
+  if(!body || !pg || !state.reader) return;
+  const bw = body.clientWidth || 390;
+  const bh = body.clientHeight || 600;
+  const pad = 14;
+  let w = bw - pad * 2;
+  let h = w * PAGE_RATIO;
+  if(h > bh - pad * 2){
+    h = bh - pad * 2;
+    w = h / PAGE_RATIO;
+  }
+  pg.style.width = w + "px";
+  pg.style.height = h + "px";
+  pg.style.marginLeft = (-w / 2) + "px";
+  pg.style.marginTop = (-h / 2) + "px";
+  applyReaderTransform();
+}
+
+function applyReaderTransform(){
+  const pg = $("sheetPage"), r = state.reader;
+  if(!pg || !r) return;
+  pg.style.transform = `scale(${r.zoom}) translate(${r.panX}px, ${r.panY}px)`;
+  const hint = $("zoomHint");
+  if(hint){
+    hint.style.display = r.zoom > 1 ? "block" : "none";
+    hint.textContent = Math.round(r.zoom * 100) + "%";
+  }
+}
+
+/**
+ * 画当前这一页。
+ * 原应用是 PdfRenderer 把真实页面渲成位图；这里复用本原型的雕版渲染器，
+ * 用「乐谱 seed + 页码」派生每页内容，页与页之间看得出区别。
+ */
+function paintReaderPage(){
+  const cv = $("pageCanvas"), r = state.reader;
+  if(!cv || !r) return;
+  const W = RENDER_W;
+  const H = Math.round(W * PAGE_RATIO);
+  cv.width = W; cv.height = H;
+  const pageScore = Object.assign({}, r.score, {
+    thumbSeed: (r.score.thumbSeed || 7) * 3 + r.page * 131,
+    thumbRows: 5,
+    thumbCols: 1,
+  });
+  drawEngrave(cv.getContext("2d"), W, H, pageScore, false);
+}
+
+/** 翻页：只在未缩放时有效，与「缩放后拖拽平移」互斥 */
+function gotoPage(i){
+  const r = state.reader;
+  if(!r || r.pageCount <= 0) return;
+  const next = Math.max(0, Math.min(r.pageCount - 1, i));
+  if(next === r.page) return;
+  r.page = next;
+  r.panX = 0; r.panY = 0;
+  paintReaderPage();
+  const dots = $("pageDots");
+  if(dots) dots.textContent = `${r.page + 1} / ${r.pageCount}`;
+}
+
+/** 缩放：夹在 1..4（原应用 coerceIn(scale * factor, 1f, 4f)），回到 1 时平移归零 */
+function setZoom(z){
+  const r = state.reader;
+  if(!r) return;
+  r.zoom = Math.max(1, Math.min(4, z));
+  if(r.zoom <= 1){ r.zoom = 1; r.panX = 0; r.panY = 0; }
+  applyReaderTransform();
+}
+
+/** 缩放后的拖拽平移；未缩放时不平移（改用横向滑动翻页） */
+function panBy(dx, dy){
+  const r = state.reader;
+  if(!r || r.zoom <= 1) return;
+  r.panX += dx / r.zoom;
+  r.panY += dy / r.zoom;
+  applyReaderTransform();
+}
+
+/* =====================================================================
+   17. 分享面板
+   ---------------------------------------------------------------------
+   对应 util/ShareUtil.kt：有可用的 PDF 就以 `application/pdf` 附件分享
+   （FileProvider 授权 + 附标题与正文），没有就退化为 `text/plain` 纯文本。
+   面板里展示的正文就是 ShareUtil.summary 的真实输出，可直接对照验收。
+   ===================================================================== */
+
+const SHARE_TARGETS = [
+  { n:"微信",   c:"#12B75B", t:"微" },
+  { n:"QQ",     c:"#2A8FE0", t:"Q" },
+  { n:"邮件",   c:"#4A6FA5", t:"✉" },
+  { n:"蓝牙",   c:"#3E6ED2", t:"ᛒ" },
+  { n:"保存到文件", c:"#7A6BD6", t:"⤓" },
+  { n:"打印",   c:"#5C6570", t:"⎙" },
+  { n:"复制文本", c:"#8A8A93", t:"⧉" },
+  { n:"更多",   c:"#A5A5AD", t:"＋" },
+];
+
+function renderShareSheet(){
+  const score = state.shareTarget;
+  if(!score) return;
+  const ready = pdfReady(score);
+  const path = resolvePdfPath(score);
+  const size = ready ? (FILE_STORE.get(path) || 0) : 0;
+
+  $("sheetBody").innerHTML = `
+    ${ready ? `
+      <div class="attach">
+        <span class="fi">${ICON.file}</span>
+        <span class="an">${esc(shareFileName(score))}</span>
+        <span class="az">${fmtBytes(size)} · PDF</span>
+      </div>` : `
+      <p class="kvnote" style="margin-top:-2px">
+        这份乐谱还没有 PDF 文件，将退化为纯文本分享（<code>text/plain</code>）。</p>`}
+
+    <div class="sectionhead" style="padding-top:2px">分享内容</div>
+    <div class="sharepre">${esc(shareSummary(score))}</div>
+
+    <div class="sectionhead" style="padding-top:2px">分享到</div>
+    <div class="sharetargets">
+      ${SHARE_TARGETS.map(t => `
+        <span class="starget" data-act="sharetarget">
+          <i style="background:${t.c}">${t.t}</i><span>${esc(t.n)}</span>
+        </span>`).join("")}
+    </div>
+    <p class="kvnote">
+      真机上这一步是 <code>Intent.createChooser(intent, "分享乐谱")</code>：
+      ${ready
+        ? `以 <code>application/pdf</code> 携带 <code>FileProvider</code> 授权 URI，并附上标题与上方正文。`
+        : `以 <code>text/plain</code> 只发送上方正文，不携带附件。`}
+      无应用可接收时提示「没有可用的分享方式」。</p>`;
+
+  $("sheetFoot").innerHTML = `<button class="btn ghost wide" data-act="esheetclose">取消</button>`;
 }
 
 /* 输入事件 */
@@ -2013,14 +3317,125 @@ $("sheetClose").addEventListener("click", closeSheet);
 $("scrim").addEventListener("click", closeSheet);
 $("fab").addEventListener("click", () => openSheet("import"));
 
+/* 内置资源：原应用启动时 PdfAssets.installMissing 会把 assets/scores/*.pdf
+   拷到 filesDir/scores/ 下，再把 Score.filePath 指过去。这里预登记一份，
+   使内置乐谱开箱即可「打开乐谱 / 分享」。 */
+FILE_STORE.set(`files/scores/${BUNDLED_PDF.name}`, BUNDLED_PDF.size);
+
+/* ---- 阅读器手势：滚轮缩放 / 拖拽平移 / 双指捏合 / 未缩放时横向滑动翻页 ---- */
+(function bindReaderGestures(){
+  const layer = $("readerLayer");
+  if(!layer) return;
+  const pts = new Map();
+  let startDist = 0, startZoom = 1, lastX = 0, lastY = 0, downX = 0, downY = 0;
+
+  const pagerOf = ev => (ev.target && ev.target.closest ? ev.target.closest("#pager") : null);
+
+  layer.addEventListener("pointerdown", ev => {
+    const r = state.reader;
+    if(!r || r.phase !== "ready" || !pagerOf(ev)) return;
+    pts.set(ev.pointerId, { x:ev.clientX, y:ev.clientY });
+    if(pts.size === 1){
+      lastX = downX = ev.clientX; lastY = downY = ev.clientY;
+      const p = $("pager"); if(p) p.classList.add("grabbing");
+    }else if(pts.size === 2){
+      const [a, b] = [...pts.values()];
+      startDist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      startZoom = r.zoom;
+    }
+    ev.preventDefault();
+  });
+
+  layer.addEventListener("pointermove", ev => {
+    const r = state.reader;
+    if(!r || !pts.has(ev.pointerId)) return;
+    pts.set(ev.pointerId, { x:ev.clientX, y:ev.clientY });
+    if(pts.size === 1){
+      const dx = ev.clientX - lastX, dy = ev.clientY - lastY;
+      lastX = ev.clientX; lastY = ev.clientY;
+      panBy(dx, dy);
+    }else if(pts.size === 2){
+      const [a, b] = [...pts.values()];
+      setZoom(startZoom * (Math.hypot(a.x - b.x, a.y - b.y) / startDist));
+    }
+  });
+
+  const end = ev => {
+    pts.delete(ev.pointerId);
+    const p = $("pager");
+    if(p) p.classList.remove("grabbing");
+    if(pts.size > 0) return;
+    const r = state.reader;
+    startDist = 0;
+    if(!r || r.phase !== "ready") return;
+    // 未缩放时横向滑动翻页；缩放后拖动只做平移，不误触翻页
+    if(r.zoom === 1 && Math.abs(downX - ev.clientX) > 46 && Math.abs(downY - ev.clientY) < 64){
+      gotoPage(ev.clientX < downX ? r.page + 1 : r.page - 1);
+    }
+  };
+  layer.addEventListener("pointerup", end);
+  layer.addEventListener("pointercancel", end);
+
+  layer.addEventListener("wheel", ev => {
+    const r = state.reader;
+    if(!r || r.phase !== "ready" || !pagerOf(ev)) return;
+    ev.preventDefault();
+    setZoom(r.zoom * (ev.deltaY < 0 ? 1.12 : 1 / 1.12));
+  }, { passive:false });
+
+  // 窗口尺寸变化时重排纸面（原应用靠 BoxWithConstraints 自动响应）
+  window.addEventListener("resize", () => {
+    if(state.reader && state.reader.phase === "ready") layoutReaderPage();
+  });
+})();
+
+/* ---- 评审辅助：演示直达条 ---- */
+function runDemo(name){
+  const withPdf = SCORES.find(s => pdfReady(s)) || SCORES.find(s => s.assetPdf);
+  const noPdf  = SCORES.find(s => !pdfReady(s));
+  closeSys(); closeReader(); closeSheet();
+  state.detail = null;
+  $("detailLayer").style.display = "none";
+  $("mainLayer").style.display = "flex";
+  renderMain();
+  switch(name){
+    case "album":          openPicker("image"); break;
+    case "pdfpick":        openPicker("pdf"); break;
+    case "reader":         if(withPdf) openReader(withPdf); break;
+    case "reader-loading": if(withPdf) openReader(withPdf, "loading"); break;
+    case "reader-empty":   if(withPdf) openReader(withPdf, "empty"); break;
+    case "reader-error":   if(withPdf) openReader(withPdf, "error"); break;
+    case "share-pdf":      if(withPdf) openSheet("share", withPdf); break;
+    case "share-text":     if(noPdf) openSheet("share", noPdf); break;
+    case "me":             state.tab = "me"; renderMain(); break;
+    // 详情页用带 PDF 的那首（月光），让「查看乐谱」可直接点进阅读器
+    case "detail":         if(withPdf) openDetail(withPdf); break;
+  }
+}
+
+$("demobar").addEventListener("click", ev => {
+  const b = ev.target.closest("[data-demo]");
+  if(!b) return;
+  [...$("demobar").querySelectorAll("[data-demo]")].forEach(x => x.classList.remove("on"));
+  b.classList.add("on");
+  runDemo(b.dataset.demo);
+});
+
 /* 启动 */
 (function boot(){
   const d = new Date();
   $("clock").textContent = `${d.getHours()}:${String(d.getMinutes()).padStart(2,"0")}`;
   renderMain();
-  // 演示崩溃恢复浮层（4 秒后自动收起）
-  setTimeout(()=>{ $("crash").classList.add("on"); }, 1200);
+  // 演示崩溃恢复浮层（4 秒后自动收起）；打开阅读器或选择器时让位
+  setTimeout(()=>{ if(!state.reader && !state.picker && !state.sheet) $("crash").classList.add("on"); }, 1200);
   setTimeout(()=>{ $("crash").classList.remove("on"); }, 9000);
+  // 允许用 `#demo=<场景>` 直达某个演示状态，方便截图与评审
+  const m = /(?:^|[#&])demo=([\w-]+)/.exec(location.hash || "");
+  if(m && typeof runDemo === "function"){
+    const b = $("demobar").querySelector(`[data-demo="${m[1]}"]`);
+    if(b) b.classList.add("on");
+    setTimeout(()=> runDemo(m[1]), 60);
+  }
 })();
 </script>
 </body>

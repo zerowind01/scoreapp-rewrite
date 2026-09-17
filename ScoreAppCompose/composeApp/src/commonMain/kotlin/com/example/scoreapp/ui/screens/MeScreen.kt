@@ -51,20 +51,6 @@ fun MeScreen(state: ScoreAppState, bottomPadding: Dp) {
     val typeCount = LibraryQuery.distinctCount(state.allScores, FilterDim.Type)
     val instrumentCount = LibraryQuery.distinctCount(state.allScores, FilterDim.Instrument)
 
-    /**
-     * 该维度下出现频次最高的取值。
-     *
-     * 「曲目类型」「乐器」两行展示的是「有多少个取值」，本身不指向某个具体值，
-     * 所以点击时取最高频的那个作为切入点——比固定取字典序第一个更符合
-     * 「先看最主流的」这一预期。曲库为空时回退为 null（只跳库、不加筛选）。
-     */
-    fun firstValue(dim: FilterDim): String? =
-        state.allScores
-            .groupingBy { if (dim == FilterDim.Type) it.type else it.instrument }
-            .eachCount()
-            .maxByOrNull { it.value }
-            ?.key
-
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = bottomPadding + 20.dp),
@@ -135,26 +121,23 @@ fun MeScreen(state: ScoreAppState, bottomPadding: Dp) {
             // 既然展示的是各维度的取值统计，点击就跳到乐谱库并按该维度筛选：
             // 「作曲家」进全局作曲家视图，另两行取当前曲库里第一个取值作为切入点。
             ListPanel {
+                // 三行都是**纯展示**（Jackson 2026-09-18 拍板）：不再跳转。
+                // 原先「乐器」会直接跳到乐谱库并筛掉一个最高频取值（钢琴），
+                // 用户看到「N 种乐器」却只看到其中一种，语义对不上。
                 ListItem(
                     icon = AppIcons.Person,
                     label = "作曲家",
                     value = "$composerCount 位",
-                    showArrow = true,
-                    onClick = { state.jumpToLibrary(FilterDim.Composer) },
                 )
                 ListItem(
                     icon = AppIcons.Book,
                     label = "曲目类型",
                     value = "$typeCount 类",
-                    showArrow = true,
-                    onClick = { state.jumpToLibrary(FilterDim.Type, firstValue(FilterDim.Type)) },
                 )
                 ListItem(
                     icon = AppIcons.MusicNote,
                     label = "乐器",
                     value = "$instrumentCount 种",
-                    showArrow = true,
-                    onClick = { state.jumpToLibrary(FilterDim.Instrument, firstValue(FilterDim.Instrument)) },
                 )
             }
         }
@@ -224,6 +207,9 @@ private fun ListPanel(content: @Composable () -> Unit) {
     }
 }
 
+/** 「未传回调」的哨兵值：用于区分纯展示行与可点行（引用相等性判断） */
+private val defaultOnClick: () -> Unit = {}
+
 @Composable
 private fun ListItem(
     icon: ImageVector,
@@ -231,14 +217,21 @@ private fun ListItem(
     value: String,
     valueColor: androidx.compose.ui.graphics.Color = Tokens.Text3,
     showArrow: Boolean = false,
-    onClick: () -> Unit,
+    // 默认空：元数据统计等纯展示行不传即可；可点行显式传
+    onClick: () -> Unit = defaultOnClick,
 ) {
     Column {
         HairlineDivider(Modifier.padding(start = 50.dp))
+        // 纯展示行（未传 onClick）不挂 clickable：挂着空回调会出现
+        // 「有涟漪、点了没反应」的假交互
+        val rowModifier = if (onClick !== defaultOnClick) {
+            Modifier.clickable(onClick = onClick)
+        } else {
+            Modifier
+        }
         Row(
-            modifier = Modifier
+            modifier = rowModifier
                 .fillMaxWidth()
-                .clickable(onClick = onClick)
                 .padding(horizontal = 14.dp, vertical = 13.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),

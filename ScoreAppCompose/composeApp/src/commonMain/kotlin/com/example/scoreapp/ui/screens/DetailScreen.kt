@@ -68,7 +68,7 @@ fun DetailScreen(
                     onClick = { state.closeDetail() },
                 )
                 IconBtn(
-                    icon = AppIcons.MoreVert,
+                    icon = AppIcons.MoreHoriz,
                     contentDescription = "更多",
                     onClick = { state.openMore(score) },
                 )
@@ -89,23 +89,13 @@ fun DetailScreen(
                     modifier = Modifier.padding(14.dp),
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    Box {
-                        ScoreThumb(
-                            score = score,
-                            modifier = Modifier
-                                .size(width = 96.dp, height = 124.dp)
-                                .clip(RoundedCornerShape(Tokens.RadiusThumb)),
-                        )
-                        // 编辑入口贴在封面右上角，不占用正文空间
-                        IconBtn(
-                            icon = AppIcons.Edit,
-                            contentDescription = "编辑",
-                            onClick = { state.openEditor(score) },
-                            modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
-                            size = 28,
-                            iconSize = 15,
-                        )
-                    }
+                    // 预览图上原先叠了一个编辑角标，与「更多 → 编辑元数据」重复，已去掉
+                    ScoreThumb(
+                        score = score,
+                        modifier = Modifier
+                            .size(width = 96.dp, height = 124.dp)
+                            .clip(RoundedCornerShape(Tokens.RadiusThumb)),
+                    )
                     Column(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -130,25 +120,28 @@ fun DetailScreen(
         }
 
         item {
-            // 强调色分享按钮（原应用把分享做成主操作，而不是塞进「更多」菜单）
-            Surface(
-                onClick = { state.share(score) },
+            // 两个主操作并排：读谱是第一动作，分享是次级动作。
+            // 原先「分享」独占整宽强调按钮，而打开乐谱被收进「更多」菜单里，主次颠倒了。
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 14.dp),
-                shape = RoundedCornerShape(15.dp),
-                color = Tokens.Accent,
-                contentColor = Tokens.AccentFg,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Row(
-                    modifier = Modifier.height(50.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                ) {
-                    Icon(AppIcons.Share, contentDescription = null, modifier = Modifier.size(19.dp))
-                    Spacer(Modifier.size(8.dp))
-                    Text("分享", fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                }
+                ActionButton(
+                    icon = AppIcons.OpenInNew,
+                    label = "查看乐谱",
+                    primary = true,
+                    onClick = { state.openPdf(score) },
+                    modifier = Modifier.weight(1f),
+                )
+                ActionButton(
+                    icon = AppIcons.Share,
+                    label = "分享",
+                    primary = false,
+                    onClick = { state.share(score) },
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
 
@@ -219,6 +212,37 @@ internal fun metaLine(score: Score): String =
     listOf(score.type, score.instrument, score.period, score.level)
         .filter { it.isNotBlank() }
         .joinToString(" · ")
+
+/**
+ * 详情页主操作按钮：`primary` 为强调色实心，否则为次级灰底。
+ * 高度 50dp、圆角 15dp、图标 19dp 与原型 `.actbtn` 一致。
+ */
+@Composable
+private fun ActionButton(
+    icon: ImageVector,
+    label: String,
+    primary: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = RoundedCornerShape(15.dp),
+        color = if (primary) Tokens.Accent else Tokens.Surface3,
+        contentColor = if (primary) Tokens.AccentFg else Tokens.Text1,
+    ) {
+        Row(
+            modifier = Modifier.height(50.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(19.dp))
+            Spacer(Modifier.size(8.dp))
+            Text(label, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
 
 /**
  * 「分类归属」里的一行谱单。整行可点，点击后打开该谱单的详情。
