@@ -128,6 +128,7 @@ const exportTail = `
   openDetail, renderMoreSheet, renderBottomNav, renderMain,
   openSheet, renderSheet, renderEditSheet, closeSheet,
   composerSuggestions, composerMatchRange,
+  openPicker, closeSys, renderPicker,
   DIM_LABEL, topValue,
   probeCoverDraw,
   // 文件链路（导入 / 落盘 / 打开 / 分享）
@@ -890,6 +891,34 @@ T.state.filters = { composer: new Set(), type: new Set(), instrument: new Set() 
   ok("演示条有「编辑乐谱」入口", /data-demo="edit"/.test(css));
   // 阅读器打开时状态栏转深色，否则白底压在纸面上读不清
   ok("阅读器状态栏有深色变体", /\.statusbar\.dark/.test(css));
+}
+
+// ---------------- 26. 相册导入改走系统照片选择器（Photo Picker） ----------------
+{
+  // 真机上「所有照片都读不出」的根因是「先申请相册权限再拉相册」这条链，
+  // 因此改用系统的 Photo Picker：由系统进程托管、不申请任何相册权限，
+  // 只对用户勾选的那几张授予临时读权限。
+  S.picker = { kind: "image", sel: new Set() };
+  T.renderPicker();
+  const picker = els.get("sysLayer").innerHTML;
+
+  ok("选择器标题是「选择照片」而非「最近项目」", picker.includes("选择照片"));
+  ok("不再出现权限式相册的「最近项目」", !picker.includes("最近项目"));
+  ok("顶栏给出「添加」动作", picker.includes('data-act="confirmimg"'));
+  ok("明确说明无需授予相册权限", picker.includes("无需授予相册权限"));
+  ok("选择器走深色形态（跟随系统主题）", picker.includes('class="sysbar dark"'));
+  ok("网格与底部同为深色", picker.includes('class="sysgrid dark"') && picker.includes('class="sysfoot dark"'));
+  ok("勾选标记改用系统蓝而非黑色强调色", picker.includes('class="pick dk"'));
+
+  // 未选中时按钮文案不带计数，选中后带
+  ok("未选中时「添加」不带计数", /data-act="confirmimg">添加</.test(picker));
+  S.picker.sel = new Set([0, 3]);
+  T.renderPicker();
+  const picked = els.get("sysLayer").innerHTML;
+  ok("选中后「添加」带计数", picked.includes("添加（2）"));
+  ok("底部同步显示已选张数", picked.includes("已选 2 张"));
+
+  S.picker = null;
 }
 
 // ---------------- 汇总 ----------------

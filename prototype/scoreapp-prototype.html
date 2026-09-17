@@ -511,6 +511,8 @@
   .syscell .pick{position:absolute;right:6px;top:6px;width:20px;height:20px;border-radius:50%;
     border:2px solid rgba(255,255,255,.92);background:rgba(0,0,0,.26);transition:.14s;}
   .syscell.on .pick{background:var(--accent);border-color:var(--accent);}
+  /* 深色选择器里强调色不能再用黑（黑底上看不见），跟系统的蓝色勾选 */
+  .syscell.on .pick.dk{background:#8AB4F8;border-color:#8AB4F8;}
   .syscell.on .pick::after{content:"";position:absolute;left:5.5px;top:2px;width:4px;height:8px;
     border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg);}
   .syscell .idx{position:absolute;left:6px;top:6px;min-width:18px;height:18px;border-radius:9px;
@@ -537,6 +539,25 @@
   .sysrow .chev svg{width:16px;height:16px;display:block;}
   .sysfoot{flex:0 0 auto;padding:10px 12px 14px;display:flex;gap:9px;background:var(--surface);
     border-top:1px solid var(--line);}
+
+  /* ---- 照片选择器的深色变体（跟随系统主题，与应用浅色界面刻意区分）---- */
+  .sysbar.dark{background:#1B1B1F;border-bottom-color:#2C2C32;}
+  .sysbar.dark h4{color:#F2F2F5;}
+  .sysbar.dark button{color:#8AB4F8;}
+  .sysbar.dark .addbtn{font-weight:800;}
+  .sysgrid.dark{background:#111113;
+    /* 深色版把格子压紧一点，更接近系统照片选择器的密排网格。
+       行高必须显式给 min-content：容器是 flex item 会被拉伸，
+       默认的 1fr 行会跟着摊高，格子被拉成长方形而不是正方形。 */
+    gap:4px;padding:4px;grid-auto-rows:min-content;}
+  /* 深色网格里格子按列宽算高度，canvas 铺满 */
+  .sysgrid.dark .syscell{height:auto;}
+  .syscell.dark{background:#26262C;}
+  .sysfoot.dark{background:#1B1B1F;border-top-color:#2C2C32;}
+  /* 说明文字与「全选」同一行：给按钮固定宽，文字自己换行，别让 flex:1 把文字压成竖条 */
+  .sysfoot.dark .picknote{flex:1 1 auto;min-width:0;font-size:11px;color:#8E8E96;font-weight:600;
+    line-height:1.45;}
+  .sysfoot.dark .btn.ghost{flex:0 0 96px;background:#2C2C32;color:#F2F2F5;}
 
   /* ---- 处理中遮罩 ---- */
   .busy{position:absolute;inset:0;z-index:70;display:none;align-items:center;justify-content:center;
@@ -3022,26 +3043,31 @@ function renderPicker(){
   const el = $("sysLayer");
 
   if(pk.kind === "image"){
+    /* 系统照片选择器（Photo Picker）的形态，不是「最近项目」权限式相册。
+       区别很重要：Photo Picker 由系统进程托管，**不申请任何相册权限**，
+       应用只拿到用户勾选那几张的临时读权限。旧实现先申请 READ_MEDIA_IMAGES
+       再拉相册，真机上正是这条链断掉才「所有照片都读不出」。
+       选择器整体是深色的（跟随系统主题），与应用的浅色界面刻意区分开。 */
     el.innerHTML = `
-      <div class="sysbar">
+      <div class="sysbar dark">
         <button data-act="sysclose">取消</button>
-        <h4>最近项目</h4>
-        <span class="sub">可多选</span>
+        <h4>选择照片</h4>
+        <button class="addbtn" data-act="confirmimg">${pk.sel.size ? `添加（${pk.sel.size}）` : "添加"}</button>
       </div>
-      <div class="sysgrid">
+      <div class="sysgrid dark">
         ${Array.from({length:ALBUM_COUNT}, (_, i) => {
           const on = pk.sel.has(i);
           return `<div class="syscell ${on?"on":""}" data-act="toggleimg" data-i="${i}">
             <canvas data-album="${i}"></canvas>
             ${albumImageBroken(i) ? `<span class="badmark" title="这张图片读不出来">!</span>` : ""}
-            <span class="pick"></span>
+            <span class="pick dk"></span>
             <span class="idx">${on ? [...pk.sel].indexOf(i) + 1 : ""}</span>
           </div>`;
         }).join("")}
       </div>
-      <div class="sysfoot">
+      <div class="sysfoot dark">
+        <span class="picknote">已选 ${pk.sel.size} 张 · 无需授予相册权限</span>
         <button class="btn ghost wide" data-act="pickall">全选</button>
-        <button class="btn primary wide" data-act="confirmimg">${pk.sel.size ? `合成 PDF（${pk.sel.size}）` : "合成 PDF"}</button>
       </div>`;
   }else{
     el.innerHTML = `
@@ -3681,6 +3707,12 @@ const APP_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 1
     const b = $("demobar").querySelector(`[data-demo="${m[1]}"]`);
     if(b) b.classList.add("on");
     setTimeout(()=> runDemo(m[1]), 60);
+    // `#sel=1`：给照片选择器预勾几格，便于截图评审选中态（评审辅助，不影响产品行为）
+    if(/(?:^|[#&])sel=1/.test(location.hash || "")){
+      setTimeout(()=>{
+        if(state.picker){ state.picker.sel = new Set([0, 1, 2, 4, 5]); renderPicker(); }
+      }, 200);
+    }
   }
 })();
 </script>
