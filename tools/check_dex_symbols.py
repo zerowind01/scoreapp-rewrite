@@ -33,11 +33,17 @@ def dex_strings(path):
     out = []
     for i in range(string_ids_size):
         off = struct.unpack_from("<I", buf, string_ids_off + i * 4)[0]
-        n, pos = read_uleb128(buf, off)
-        raw = buf[pos:pos + n]
-        # MUTF-8：末尾补的 \0 不算内容
+        utf16_len, pos = read_uleb128(buf, off)
+        # string_data_item 的 uleb128 是 **UTF-16 码元数**，不是字节数：
+        # 中文这类多字节字符两者不等，按 n 取字节会把字符串截成乱码
+        # （"编辑元数据" 会被读成 5 个字节），于是明明在包里却报 MISSING。
+        # MUTF-8 以 \0 结尾，直接扫到终止符才是可靠的取法。
+        end = buf.find(b"\x00", pos)
+        if end < 0:
+            end = min(pos + utf16_len, len(buf))
+        raw = buf[pos:end]
         try:
-            out.append(raw.decode("utf-8", errors="replace").rstrip("\x00"))
+            out.append(raw.decode("utf-8", errors="replace"))
         except Exception:
             pass
     return out

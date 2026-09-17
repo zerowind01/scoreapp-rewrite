@@ -25,6 +25,12 @@ tools/*
 tools/proto_pdf_b64.txt
 jadx_*.log
 
+# ---- 本地验证产物（截图 / 临时补丁 / dex 解包目录）----
+.tmpdex/
+proto_*.png
+scoreapp-fix.*
+logo-preview.svg
+
 # ---- 本地工作笔记（AI 助手记忆目录，含逆向分析过程记录）----
 .workbuddy-ai/
 
