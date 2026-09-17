@@ -227,6 +227,8 @@ private fun ScoresTab(state: ScoreAppState, bottomPadding: Dp) {
                             score = score,
                             onOpen = { state.openDetail(score) },
                             onEdit = { state.openEditor(score) },
+                            onView = { state.openPdf(score) },
+                            onShare = { state.share(score) },
                             compact = true,
                         )
                     }
@@ -247,6 +249,8 @@ private fun ScoresTab(state: ScoreAppState, bottomPadding: Dp) {
                             score = score,
                             onOpen = { state.openDetail(score) },
                             onEdit = { state.openEditor(score) },
+                            onView = { state.openPdf(score) },
+                            onShare = { state.share(score) },
                         )
                     }
                 }

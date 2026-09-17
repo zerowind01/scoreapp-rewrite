@@ -3,6 +3,10 @@ package com.example.scoreapp.ui.components
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroidSize
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -39,6 +43,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -50,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.scoreapp.domain.ReaderBarText
 import com.example.scoreapp.ui.theme.Tokens
+import kotlin.math.abs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -250,6 +256,13 @@ private fun ColumnScope.PageBody(doc: PdfDocState, pageCount: Int) {
  * 缩放夹在 1×–4×（下限 1 让用户总能退回完整页面，上限 4 是清晰度与内存的取舍点）；
  * 位移只在放大后累加，缩回 1× 时归零——否则缩小后页面会停在一个偏移位置，
  * 看起来像是「跑偏了」而不是「回到原处」。
+ *
+ * 手势按缩放状态分两套，这是「在乐谱上拖不动页」的根因所在：
+ * `detectTransformGestures` 一旦过了 touch slop 就 **无条件消费** 指针事件，
+ * 单指拖动也被吃掉，外层 `HorizontalPager` 再也收不到滑动；
+ * 手势又只挂在 Image 上，于是只有图像之外的空白区能翻页。
+ *  · 1×（未放大）：只认双指捏合，单指拖动一律放行 → 交给 Pager 翻页
+ *  · >1×（已放大）：接管全部手势，平移页面；此时不该翻页，否则边拖边跳页
  */
 @Composable
 private fun PdfPage(doc: PdfDocState, index: Int, targetWidth: Int) {
@@ -264,14 +277,23 @@ private fun PdfPage(doc: PdfDocState, index: Int, targetWidth: Int) {
         }
     }
 
-    val gestures = Modifier.pointerInput(index) {
-        detectTransformGestures { _, pan, zoom, _ ->
-            scale = (scale * zoom).coerceIn(1f, 4f)
-            offset = if (scale > 1f) offset + pan else Offset.Zero
+    // key 里带上「是否已放大」：切换缩放状态的那一刻重建手势节点，两套逻辑不打架
+    val zoomed = scale > 1.001f
+    val gestures = Modifier.pointerInput(index, zoomed) {
+        if (zoomed) {
+            detectTransformGestures { _, pan, zoom, _ ->
+                scale = (scale * zoom).coerceIn(1f, 4f)
+                offset = if (scale > 1f) offset + pan else Offset.Zero
+            }
+        } else {
+            detectPinchZoom { zoom ->
+                scale = (scale * zoom).coerceIn(1f, 4f)
+                offset = Offset.Zero
+            }
         }
     }
 
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxSize().then(gestures), contentAlignment = Alignment.Center) {
         val current = frame
         if (current == null) {
             // 位图未就绪，或这一页渲染失败——两者都表现为等待状态
@@ -288,9 +310,43 @@ private fun PdfPage(doc: PdfDocState, index: Int, targetWidth: Int) {
                         scaleY = scale
                         translationX = offset.x
                         translationY = offset.y
-                    }
-                    .then(gestures),
+                    },
             )
         }
+    }
+}
+
+/**
+ * 只认双指捏合，单指拖动**不消费**。
+ *
+ * 与 `detectTransformGestures` 的唯一区别就在这里：后者一旦越过 touch slop
+ * 就把所有指针变化都 `consume()` 掉，外层 Pager 因此收不到滑动。
+ * 未放大时页面本来也不需要平移，单指拖动的语义就是翻页，理应放行。
+ */
+private suspend fun PointerInputScope.detectPinchZoom(onZoom: (Float) -> Unit) {
+    awaitEachGesture {
+        val touchSlop = viewConfiguration.touchSlop
+        var zoom = 1f
+        var pastSlop = false
+        awaitFirstDown()
+        do {
+            val event = awaitPointerEvent()
+            val canceled = event.changes.any { it.isConsumed }
+            val downCount = event.changes.count { it.pressed }
+            if (!canceled && downCount >= 2) {
+                zoom *= event.calculateZoom()
+                if (!pastSlop) {
+                    // 捏合的位移量要乘上两指间距才与 touch slop 同量纲
+                    val span = event.calculateCentroidSize(useCurrent = false)
+                    pastSlop = abs(1f - zoom) * span > touchSlop
+                }
+                if (pastSlop) {
+                    // 传增量：调用方自己乘进当前 scale，这里随即归 1，避免重复累计
+                    onZoom(zoom)
+                    zoom = 1f
+                    event.changes.forEach { if (it.pressed) it.consume() }
+                }
+            }
+        } while (!canceled && event.changes.any { it.pressed })
     }
 }

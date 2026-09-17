@@ -11,12 +11,20 @@ import com.example.scoreapp.model.ScoreSet
  * 统一收拢到 domain，与 `LibraryQuery` 保持同一层级：纯函数、零依赖、可直接断言。
  */
 
-/** 时间戳格式化为 `yyyy-MM-dd HH:mm`。commonMain 无法用 java.time，故手工拼装。 */
-fun formatDate(timestamp: Long): String {
+/**
+ * 时间戳格式化为 `yyyy-MM-dd HH:mm`。commonMain 无法用 java.time，故手工拼装。
+ *
+ * @param offsetSeconds 相对 UTC 的偏移（秒）。默认取设备本地时区在**该时刻**的偏移
+ *   （见 [localUtcOffsetSeconds]）——原实现一律按 UTC 解释，在 UTC+8 下会早 8 小时。
+ *   显式传入可让测试不依赖运行机器的时区。
+ */
+fun formatDate(timestamp: Long, offsetSeconds: Int = localUtcOffsetSeconds(timestamp)): String {
     if (timestamp <= 0L) return "—"
-    val totalSeconds = timestamp / 1000
-    val days = totalSeconds / 86400
-    val secondsOfDay = totalSeconds % 86400
+    // 先加偏移再拆天：偏移可能把时间推到前一天或后一天
+    val totalSeconds = timestamp / 1000 + offsetSeconds
+    // 向下取整的除法 / 取模：epoch 之前的时间戳不能让「当天秒数」变成负数
+    val days = if (totalSeconds >= 0) totalSeconds / 86400 else (totalSeconds - 86399) / 86400
+    val secondsOfDay = totalSeconds - days * 86400
     val (year, month, day) = civilFromDays(days)
     val hour = secondsOfDay / 3600
     val minute = (secondsOfDay % 3600) / 60

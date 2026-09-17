@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  启动图标前景（自适应图标，108×108 视口）。
+
+  与 logo/scoreapp-logo.svg 同源，但不带底色矩形：
+  底由 mipmap-anydpi-v26/ic_launcher.xml 的 <background> 提供。
+  图形收在中心直径 66 的安全区内，各厂商的异形遮罩不会切到纸与音符。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 乐谱纸（右上角折角） -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M31,33 Q31,27 37,27 H67 L77,37 V75 Q77,81 71,81 H37 Q31,81 31,75 Z" />
+    <!-- 折角翻面 -->
+    <path
+        android:fillColor="#C9C9CE"
+        android:pathData="M67,27 L77,37 H67 Z" />
+
+    <!-- 四线谱 -->
+    <path
+        android:strokeColor="#111113"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M39,45 L69,45" />
+    <path
+        android:strokeColor="#111113"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M39,53.5 L69,53.5" />
+    <path
+        android:strokeColor="#111113"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M39,62 L69,62" />
+    <path
+        android:strokeColor="#111113"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M39,70.5 L69,70.5" />
+
+    <!-- 八分音符：白色描边把音符从谱线上衬出来 -->
+    <path
+        android:fillColor="#111113"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineJoin="round"
+        android:pathData="M40.2,66 A6.9,5.2 -20 0 1 54,66 A6.9,5.2 -20 0 1 40.2,66 Z" />
+    <path
+        android:fillColor="#111113"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineJoin="round"
+        android:pathData="M51.8,43 H54.2 V66 H51.8 Z" />
+    <path
+        android:fillColor="#111113"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineJoin="round"
+        android:pathData="M54.2,43 C61,44 64.5,48.5 63,54 C61,49.5 57.5,47.5 54.2,48 Z" />
+</vector>

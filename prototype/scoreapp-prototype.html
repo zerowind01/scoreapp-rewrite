@@ -4,6 +4,8 @@
 <meta charset="UTF-8" data-page-node-id="oUdN8cOGLlgCdnvAru41E2" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" data-page-node-id="o1rLf0fzay3xGNTDHknKjr" />
 <title>乐谱管理 · UI 原型</title>
+<!-- 应用 Logo 同时充当原型页签图标（与 Android 启动图标同源，见 ScoreAppCompose/logo/） -->
+<link id="favicon" rel="icon" type="image/svg+xml" href="" />
 <style>
   /* ============ 设计令牌（取自原应用 Tokens.kt 解码值） ============ */
   :root{
@@ -145,12 +147,17 @@
   .mtag.inst{color:var(--tag-inst-fg);background:var(--tag-inst-bg);}
   .mtag.ai{color:var(--link);background:#E7F2FC;}
   .card-foot{display:flex;align-items:center;justify-content:space-between;margin-top:auto;padding-top:4px;}
-  .card-foot .pages{font-size:11px;color:var(--text3);font-weight:600;}
-  .card-foot .more{
-    width:26px;height:26px;border-radius:50%;border:0;background:var(--surface2);color:var(--text2);
-    display:flex;align-items:center;justify-content:center;cursor:pointer;
+  .card-foot .pages{font-size:11px;color:var(--text3);font-weight:600;min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  /* 列表项快捷入口：查看 / 分享 / 编辑。
+     原先只有一个三点（还只做编辑一件事），分享与查看都得先点进详情页。 */
+  .cardacts{display:flex;align-items:center;gap:2px;flex:0 0 auto;}
+  .cardacts .ca{
+    width:25px;height:25px;border-radius:50%;border:0;padding:0;background:transparent;color:var(--text3);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .12s;
   }
-  .card-foot .more svg{width:15px;height:15px;}
+  .cardacts .ca:hover{background:var(--surface2);color:var(--text2);}
+  .cardacts .ca svg{width:14px;height:14px;}
 
   /* ============ 空状态 ============ */
   .empty{padding:64px 32px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:9px;}
@@ -270,19 +277,26 @@
   .navitem svg{width:21px;height:21px;}
   .navitem span{font-size:10px;font-weight:600;line-height:1;}
   .navitem.on{color:var(--text1);}
-  /* 选中项：白色气泡浮在玻璃之上，对应参考图里那颗高亮圆底。
-     刻意做成"略微拉宽"的椭圆而非正圆——宽 56 / 高 52，横向多 4px，
-     在玻璃导台上包裹感更松弛。注意不能只给 border-radius 而不给尺寸：
-     圆角只能把矩形的角切圆、纠正不了宽高比，宽高不等时渲染即椭圆。
-     用伪元素绘制，避免被 .navitem 自身的层叠/圆角切掉边角。 */
-  .navitem.on::before{
-    content:"";position:absolute;top:50%;left:50%;
-    width:56px;height:52px;
-    transform:translate(-50%,-50%);
-    border-radius:50%;
+  /* 选中焦点：整条导台只有**一颗**气泡（.navbubble），切页签时靠 left 过渡滑过去。
+     原先是给 .navitem.on 画一个 ::before —— 每次切换都在旧位置消失、新位置重画一颗，
+     看起来是「闪现」而不是「滑动」。
+     位置用 calc 按索引算，避免 JS 反复测量：
+       导台内边距 4px；可用宽 = 100%(内边距盒) - 8px；页签间距 2px×(n-1)
+       单签宽 w = (可用宽 - 2px×(n-1)) / n
+       第 i 颗的中心 = 4px + i×(w + 2px) + w/2；再左移半个气泡宽（28px）对齐 */
+  .navbubble{
+    position:absolute;top:50%;z-index:0;pointer-events:none;
+    width:56px;height:52px;border-radius:50%;
     background:rgba(255,255,255,.92);
     box-shadow:0 3px 10px rgba(17,17,19,.12);
-    z-index:-1;
+    transform:translateY(-50%);
+    left:calc(
+      4px
+      + var(--i) * (((100% - 8px - (var(--n) - 1) * 2px) / var(--n)) + 2px)
+      + ((100% - 8px - (var(--n) - 1) * 2px) / (var(--n) * 2))
+      - 28px
+    );
+    transition:left .3s cubic-bezier(.4,0,.2,1);
   }
   /* 选中态的气泡就是唯一的点击反馈，不再额外加按下态。
      原先这里有一条 `.navitem:active::before`，会在按下瞬间叠一层白色块——
@@ -1334,7 +1348,11 @@ function scoreCardHTML(s, dense){
       <div class="card-tags">${tags.join("")}</div>
       <div class="card-foot">
         <span class="pages">${s.pages} 页 · ${esc(s.period)} · ${esc(s.level)}</span>
-        <button class="more" data-act="edit" data-id="${s.id}" title="编辑">${ICON.more}</button>
+        <div class="cardacts">
+          <button class="ca" data-act="openpdf" data-id="${s.id}" title="查看乐谱">${ICON.open}</button>
+          <button class="ca" data-act="share" data-id="${s.id}" title="分享">${ICON.share}</button>
+          <button class="ca" data-act="edit" data-id="${s.id}" title="编辑">${ICON.edit}</button>
+        </div>
       </div>
     </div></article>`;
 }
@@ -1414,7 +1432,7 @@ function renderMain(){
   if(state.works){
     $("content").innerHTML = renderWorks();
     $("fab").style.display = "none";
-    $("bottomnav").innerHTML = bottomNavHTML();
+    renderBottomNav();
     paintAllThumbs();
     return;
   }
@@ -1494,17 +1512,35 @@ function renderMain(){
 
   $("content").innerHTML = html;
   paintAllThumbs();
-  $("bottomnav").innerHTML = bottomNavHTML();
+  renderBottomNav();
 }
 
-function bottomNavHTML(){
+/**
+ * 底部导台。
+ *
+ * 焦点气泡**不随每次 renderMain 重建**：整段 innerHTML 重刷出来的新元素
+ * 没有「过渡起点」，动画会退化成闪现。所以页签结构只在首次生成，
+ * 之后只切 `.on` 与气泡的 `--i`，让浏览器有前后两个 left 值可插值。
+ */
+function renderBottomNav(){
+  const nav = $("bottomnav");
   const items = [
     {k:"manage",    label:"乐谱",  icon:ICON.book},
     {k:"composers", label:"作曲家",icon:ICON.person},
     {k:"me",        label:"我的",  icon:ICON.user}
   ];
-  return items.map(it => `<button class="navitem ${activeTab()===it.k?"on":""}" data-act="tab" data-v="${it.k}">
-    ${it.icon}<span>${it.label}</span></button>`).join("");
+  if(!nav.dataset.built){
+    const bubble = `<span class="navbubble"></span>`;
+    const tabs = items.map(it => `<button class="navitem" data-act="tab" data-v="${it.k}">
+      ${it.icon}<span>${it.label}</span></button>`).join("");
+    nav.innerHTML = bubble + tabs;
+    nav.dataset.built = "1";
+  }
+  const idx = Math.max(0, items.findIndex(it => it.k === activeTab()));
+  nav.querySelectorAll(".navitem").forEach((el, i) => el.classList.toggle("on", i === idx));
+  const bubble = nav.querySelector(".navbubble");
+  bubble.style.setProperty("--i", String(idx));
+  bubble.style.setProperty("--n", String(items.length));
 }
 
 /** 当前高亮的页签。作品页由「作曲家」页推入，因此归属该页签 */
@@ -3422,7 +3458,13 @@ $("demobar").addEventListener("click", ev => {
 });
 
 /* 启动 */
+/* 应用 Logo：与 ScoreAppCompose/logo/scoreapp-logo.svg 同源，改一处需同步两处 */
+const APP_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108"><rect width="108" height="108" rx="24" fill="#111113"/><path d="M31 33 Q31 27 37 27 H67 L77 37 V75 Q77 81 71 81 H37 Q31 81 31 75 Z" fill="#FFFFFF"/><path d="M67 27 L77 37 H67 Z" fill="#C9C9CE"/><g stroke="#111113" stroke-width="2.2" stroke-linecap="round"><line x1="39" y1="45" x2="69" y2="45"/><line x1="39" y1="53.5" x2="69" y2="53.5"/><line x1="39" y1="62" x2="69" y2="62"/><line x1="39" y1="70.5" x2="69" y2="70.5"/></g><g fill="#111113" stroke="#FFFFFF" stroke-width="1.6" stroke-linejoin="round"><path d="M40.2 66 A6.9 5.2 -20 0 1 54 66 A6.9 5.2 -20 0 1 40.2 66 Z"/><path d="M51.8 43 H54.2 V66 H51.8 Z"/><path d="M54.2 43 C61 44 64.5 48.5 63 54 C61 49.5 57.5 47.5 54.2 48 Z"/></g></svg>`;
+
 (function boot(){
+  // 页签图标用 Logo（data URI，保持单文件交付）
+  const fav = document.querySelector("#favicon");
+  if(fav) fav.setAttribute("href", "data:image/svg+xml;utf8," + encodeURIComponent(APP_LOGO_SVG));
   const d = new Date();
   $("clock").textContent = `${d.getHours()}:${String(d.getMinutes()).padStart(2,"0")}`;
   renderMain();

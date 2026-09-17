@@ -285,7 +285,16 @@ class ScoreAppState {
 
     // ---------- 详情与编辑 ----------
     /** 打开乐谱详情。详情是一层覆盖视图，不压入导航栈，返回键优先关它 */
-    fun openDetail(score: Score) { detail = score }
+    /**
+     * 打开详情页。
+     *
+     * 顺带收起任何已打开的弹层：详情页是全屏视图，
+     * 而弹层渲染在它之上，不关掉会出现「详情被谱单弹层盖住」。
+     */
+    fun openDetail(score: Score) {
+        sheet = SheetKind.None
+        detail = score
+    }
 
     var detail by mutableStateOf<Score?>(null)
         private set

@@ -1,6 +1,9 @@
 package com.example.scoreapp.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -10,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -18,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -30,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -195,7 +201,10 @@ private fun BottomNav(state: ScoreAppState, modifier: Modifier = Modifier) {
     // 让底下的列表内容透出来但仍保持可读（对应原型的 backdrop-filter: blur）。
     // 圆角取高度一半（26dp），两端才会得到真正的半圆而非"圆角矩形"。
     val pillShape = RoundedCornerShape(BottomNavHeight / 2)
-    Row(
+    val tabs = RootTab.entries
+    val index = tabs.indexOf(state.activeTab).coerceAtLeast(0)
+
+    BoxWithConstraints(
         modifier = modifier
             .padding(horizontal = 14.dp, vertical = 12.dp)
             .fillMaxWidth()
@@ -204,55 +213,72 @@ private fun BottomNav(state: ScoreAppState, modifier: Modifier = Modifier) {
             .glassSurface()
             .border(1.dp, Color.White.copy(alpha = 0.72f), pillShape)
             .padding(horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        RootTab.entries.forEach { tab ->
-            val selected = state.activeTab == tab
-            val interaction = remember { MutableInteractionSource() }
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    // indication = null：默认的 ripple 在被裁进矩形边界后
-                    // 看起来就是一块长方形高亮，观感脏。选中反馈交给白色气泡。
-                    .clickable(interactionSource = interaction, indication = null) {
-                        state.selectTab(tab)
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                // 选中项：白色气泡浮在玻璃之上，对应参考图里那颗高亮圆底。
-                // 横向刻意比纵向宽 4dp，得到"略微拉宽"的椭圆观感。
-                if (selected) {
-                    Box(
-                        modifier = Modifier
-                            .size(width = BottomNavBubbleWidth, height = BottomNavBubbleHeight)
-                            .shadow(3.dp, CircleShape, clip = false)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.92f)),
-                    )
-                }
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    Icon(
-                        imageVector = when (tab) {
-                            RootTab.Library -> AppIcons.Book
-                            RootTab.Composers -> AppIcons.Person
-                            RootTab.Me -> AppIcons.AccountCircle
+        // 页签是等宽排列的，所以「第 index 个的中心」可以直接从可用宽算出来：
+        //   单签宽 = (可用宽 - 间距×(n-1)) / n
+        //   中心   = index × (单签宽 + 间距) + 单签宽 / 2
+        // 用份额（Float）做动画而不是 dp，避免首帧拿到 0 宽时算出一个错误的偏移量。
+        val step = maxWidth / tabs.size
+        // 直接动画 Dp：offset 的 lambda 版本要自己把 Dp 转像素，
+        // 而 offset(x = Dp) 把换算留给框架，省一层容易写错的单位处理
+        val bubbleX by animateDpAsState(
+            targetValue = step * (index + 0.5f) - BottomNavBubbleWidth / 2,
+            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+            label = "navBubble",
+        )
+        // 选中项：白色气泡浮在玻璃之上，对应参考图里那颗高亮圆底。
+        // 整条导台只有这一颗，切页签时靠 offset 滑过去，而不是旧位置消失、新位置重画。
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .offset(x = bubbleX)
+                .size(width = BottomNavBubbleWidth, height = BottomNavBubbleHeight)
+                .shadow(3.dp, CircleShape, clip = false)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.92f)),
+        )
+
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            tabs.forEach { tab ->
+                val selected = state.activeTab == tab
+                val interaction = remember { MutableInteractionSource() }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        // indication = null：默认的 ripple 在被裁进矩形边界后
+                        // 看起来就是一块长方形高亮，观感脏。选中反馈交给白色气泡。
+                        .clickable(interactionSource = interaction, indication = null) {
+                            state.selectTab(tab)
                         },
-                        contentDescription = tab.label,
-                        tint = if (selected) Tokens.Text1 else Tokens.TabInactive,
-                        modifier = Modifier.size(21.dp),
-                    )
-                    Text(
-                        text = tab.label,
-                        fontSize = 10.sp,
-                        lineHeight = 10.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (selected) Tokens.Text1 else Tokens.TabInactive,
-                    )
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Icon(
+                            imageVector = when (tab) {
+                                RootTab.Library -> AppIcons.Book
+                                RootTab.Composers -> AppIcons.Person
+                                RootTab.Me -> AppIcons.AccountCircle
+                            },
+                            contentDescription = tab.label,
+                            tint = if (selected) Tokens.Text1 else Tokens.TabInactive,
+                            modifier = Modifier.size(21.dp),
+                        )
+                        Text(
+                            text = tab.label,
+                            fontSize = 10.sp,
+                            lineHeight = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (selected) Tokens.Text1 else Tokens.TabInactive,
+                        )
+                    }
                 }
             }
         }

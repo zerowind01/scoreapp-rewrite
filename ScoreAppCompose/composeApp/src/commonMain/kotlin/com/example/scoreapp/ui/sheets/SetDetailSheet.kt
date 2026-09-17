@@ -54,8 +54,10 @@ fun SetDetailSheet(
             members.forEach { score ->
                 ScoreCard(
                     score = score,
-                    onOpen = { state.showToast("打开乐谱：${score.title}") },
+                    onOpen = { state.openDetail(score) },
                     onEdit = { state.openEditor(score) },
+                    onView = { state.openPdf(score) },
+                    onShare = { state.share(score) },
                 )
             }
         }

@@ -34,7 +34,8 @@ function makeEl(id) {
     value: "",
     selectionStart: 0,
     dataset: {},
-    style: {},
+    // 真实 DOM 的 style 有 setProperty：底栏气泡改 --i 走的就是这条路
+    style: { setProperty() {}, removeProperty() {}, getPropertyValue() { return ""; } },
     classList: {
       _s: new Set(),
       add(c) { this._s.add(c); },
@@ -46,7 +47,9 @@ function makeEl(id) {
     removeEventListener() {},
     appendChild() {},
     querySelectorAll() { return []; },
-    querySelector() { return null; },
+    // 原先返回 null：任何「先查元素再改样式」的代码在测试里都会炸。
+    // 返回一个一次性桩元素即可（与 getElementById 不同，这里的查询结果不需要跨调用稳定）。
+    querySelector() { return makeEl("q"); },
     focus() {},
     blur() {},
     setSelectionRange() {},
@@ -90,7 +93,7 @@ const exportTail = `
   setMembers, setsOfScore, scoreById,
   SURNAME_INITIAL, ALIAS,
   normalizeDraft, metaLine, fmtDate, importScore,
-  openDetail, renderMoreSheet,
+  openDetail, renderMoreSheet, renderBottomNav, renderMain,
   DIM_LABEL, topValue,
   probeCoverDraw,
   // 文件链路（导入 / 落盘 / 打开 / 分享）
@@ -740,6 +743,24 @@ T.state.filters = { composer: new Set(), type: new Set(), instrument: new Set() 
   ok("「更多」菜单去掉了「打开乐谱」", !sheet.includes("打开乐谱"));
   ok("「更多」菜单仍保留「编辑元数据」", sheet.includes("编辑元数据"));
   S.moreTarget = null;
+}
+
+// ---------------- 21. 底部导台焦点气泡（滑动动画的前提） ----------------
+{
+  const nav = els.get("bottomnav");
+  T.renderBottomNav();
+  const before = nav.innerHTML;
+  ok("整条导台只有一颗焦点气泡", (before.match(/navbubble/g) || []).length === 1);
+  ok("三个页签都在", (before.match(/class="navitem"/g) || []).length === 3);
+
+  // 切页签时若整段 innerHTML 重刷，新元素没有「过渡起点」，
+  // left 不会插值，动画就退化成闪现——所以结构必须保持不变，只改 --i。
+  const keep = S.tab;
+  S.tab = "me";
+  T.renderMain();
+  eq("切页签后导台结构不重建", nav.innerHTML, before);
+  S.tab = keep;
+  T.renderMain();
 }
 
 // ---------------- 汇总 ----------------

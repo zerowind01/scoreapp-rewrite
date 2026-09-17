@@ -2,4 +2,6 @@
 <resources>
     <color name="bg_page">#F4F4F6</color>
     <color name="text_primary">#111113</color>
+    <!-- 启动图标自适应底色：与应用主强调色同源 -->
+    <color name="ic_launcher_background">#111113</color>
 </resources>

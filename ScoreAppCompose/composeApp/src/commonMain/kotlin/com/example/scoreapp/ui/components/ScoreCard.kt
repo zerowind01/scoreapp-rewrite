@@ -1,6 +1,5 @@
 package com.example.scoreapp.ui.components
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -21,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -32,12 +31,15 @@ import com.example.scoreapp.ui.theme.Tokens
  * 乐谱卡片。
  *
  * @param compact 网格视图下改为纵向排布，缩略图占满整行宽度
+ * @param onView 直接打开 PDF；[onShare] 分享；[onEdit] 编辑元数据
  */
 @Composable
 fun ScoreCard(
     score: Score,
     onOpen: () -> Unit,
     onEdit: () -> Unit,
+    onView: () -> Unit,
+    onShare: () -> Unit,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
 ) {
@@ -55,36 +57,15 @@ fun ScoreCard(
                 modifier = Modifier.padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp),
             ) {
-                Box {
-                    ScoreThumb(
-                        score = score,
-                        dense = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(118.dp)
-                            .clip(RoundedCornerShape(Tokens.RadiusThumb)),
-                    )
-                    // 网格视图原先没有编辑入口（避免挤占窄卡片），
-                    // 改为把编辑按钮浮在缩略图右上角，既保留入口又不占正文空间
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(5.dp)
-                            .size(24.dp)
-                            .clip(CircleShape)
-                            .background(Tokens.Surface2)
-                            .clickable(onClick = onEdit),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = AppIcons.Edit,
-                            contentDescription = "编辑",
-                            tint = Tokens.Text2,
-                            modifier = Modifier.size(13.dp),
-                        )
-                    }
-                }
-                CardBody(score, onEdit, showMore = false, modifier = Modifier.fillMaxWidth())
+                ScoreThumb(
+                    score = score,
+                    dense = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(118.dp)
+                        .clip(RoundedCornerShape(Tokens.RadiusThumb)),
+                )
+                CardBody(score, onView, onShare, onEdit, Modifier.fillMaxWidth())
             }
         } else {
             Row(
@@ -98,7 +79,7 @@ fun ScoreCard(
                         .clip(RoundedCornerShape(Tokens.RadiusThumb)),
                 )
                 // 横向排布时用 weight 吃掉剩余宽度；若写 fillMaxWidth 会按整行宽度测量而溢出
-                CardBody(score, onEdit, showMore = true, modifier = Modifier.weight(1f))
+                CardBody(score, onView, onShare, onEdit, Modifier.weight(1f))
             }
         }
     }
@@ -107,8 +88,9 @@ fun ScoreCard(
 @Composable
 private fun CardBody(
     score: Score,
+    onView: () -> Unit,
+    onShare: () -> Unit,
     onEdit: () -> Unit,
-    showMore: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -152,23 +134,42 @@ private fun CardBody(
                 color = Tokens.Text3,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
             )
-            if (showMore) {
-                Box(
-                    modifier = Modifier
-                        .size(26.dp)
-                        .clip(CircleShape)
-                        .clickable(onClick = onEdit),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = AppIcons.MoreHoriz,
-                        contentDescription = "编辑",
-                        tint = Tokens.Text2,
-                        modifier = Modifier.size(15.dp),
-                    )
-                }
-            }
+            CardActions(onView, onShare, onEdit)
         }
+    }
+}
+
+/**
+ * 列表项右下角的三个快捷入口：查看 / 分享 / 编辑。
+ *
+ * 原先这里只有一个三点，且只做「编辑」一件事；查看与分享必须先点进详情页。
+ * 三点（[AppIcons.MoreHoriz]）语义上是「还有更多」，只挂一个动作是误导。
+ */
+@Composable
+private fun CardActions(onView: () -> Unit, onShare: () -> Unit, onEdit: () -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        CardAction(AppIcons.OpenInNew, "查看乐谱", onView)
+        CardAction(AppIcons.Share, "分享", onShare)
+        CardAction(AppIcons.Edit, "编辑", onEdit)
+    }
+}
+
+@Composable
+private fun CardAction(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(25.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = Tokens.Text3,
+            modifier = Modifier.size(14.dp),
+        )
     }
 }

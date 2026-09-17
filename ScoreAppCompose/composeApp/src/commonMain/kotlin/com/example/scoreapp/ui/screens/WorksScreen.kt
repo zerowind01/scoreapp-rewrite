@@ -138,6 +138,8 @@ fun WorksScreen(
                     score = score,
                     onOpen = { state.openDetail(score) },
                     onEdit = { state.openEditor(score) },
+                    onView = { state.openPdf(score) },
+                    onShare = { state.share(score) },
                 )
             }
             item { Spacer(Modifier.height(4.dp)) }
