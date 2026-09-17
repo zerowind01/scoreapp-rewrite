@@ -50,8 +50,9 @@
   .scroll::-webkit-scrollbar{display:none;}
   /* 导航改成悬浮导台后不再占据文档流，内容会滚到导台下方被遮住，
      因此由滚动区自己预留出「导台高度 + 上下留白」的底部空间。
-     导台压薄后所需避让空间同步收敛：12(距底) + 52(高) + 28(呼吸) ≈ 92 */
-  .with-nav .scroll{padding-bottom:92px;}
+     导台整体加高加宽后所需避让空间同步放大：
+     12(距底) + 56(高) + 28(呼吸) ≈ 96 */
+  .with-nav .scroll{padding-bottom:96px;}
 
   /* ============ 顶部标题区 ============ */
   .topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 6px;gap:10px;}
@@ -150,14 +151,17 @@
   .card-foot .pages{font-size:11px;color:var(--text3);font-weight:600;min-width:0;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   /* 列表项快捷入口：查看 / 分享 / 编辑。
-     原先只有一个三点（还只做编辑一件事），分享与查看都得先点进详情页。 */
-  .cardacts{display:flex;align-items:center;gap:2px;flex:0 0 auto;}
+     原先只有一个三点（还只做编辑一件事），分享与查看都得先点进详情页。
+     尺寸按真机反馈放大：命中区 25px → 34px、图标 14px → 18px。
+     34px 略小于 44px 的通用触控下限，但它是三枚并排的次级入口，
+     再大就会挤占标题行；间距同步由 2px 放到 4px，避免误触相邻按钮。 */
+  .cardacts{display:flex;align-items:center;gap:4px;flex:0 0 auto;}
   .cardacts .ca{
-    width:25px;height:25px;border-radius:50%;border:0;padding:0;background:transparent;color:var(--text3);
-    display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .12s;
+    width:34px;height:34px;border-radius:50%;border:0;padding:0;background:transparent;color:var(--text2);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .12s,color .12s;
   }
-  .cardacts .ca:hover{background:var(--surface2);color:var(--text2);}
-  .cardacts .ca svg{width:14px;height:14px;}
+  .cardacts .ca:hover{background:var(--surface2);color:var(--text1);}
+  .cardacts .ca svg{width:18px;height:18px;}
 
   /* ============ 空状态 ============ */
   .empty{padding:64px 32px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:9px;}
@@ -247,14 +251,15 @@
 
   /* ============ 底部导航（胶囊悬浮导台） ============ */
   /* 不再贴底通栏，而是浮在内容之上的一片胶囊玻璃：两端为半圆收口（弧形），四周留空。
-     行高刻意压低（内容 44px + 上下 4px），比常规底栏更"薄"，让出更多阅读区。 */
+     参数按 Jackson 给的参考图重校（原实现偏窄偏小）：
+       岛台高 56px（内容 44 + 上下 6）、左右距边 16px（原 14）、底部 12px
+       圆角取高度一半 28px，两端得到真正的半圆收口
+       页签文字 10px → 12px、图标 21px → 23px、焦点气泡 56×52 → 64×46（拉宽成胶囊） */
   .bottomnav{
-    position:absolute;left:14px;right:14px;bottom:12px;z-index:6;
+    position:absolute;left:16px;right:16px;bottom:12px;z-index:6;
     display:flex;align-items:center;gap:2px;
-    padding:4px;
-    /* 高度 54px（内容 44 + 上下 4 + 边框 1×2）⇒ 半径取 27px 恰好等于高度一半，
-       两端得到真正的半圆收口，而不是"圆角矩形" */
-    border-radius:27px;
+    padding:6px;
+    border-radius:28px;
     background:rgba(255,255,255,.82);
     /* 毛玻璃：加厚模糊 + 提饱和，让底下内容透出来但不过分干扰阅读。
        底色不透明度 .82 —— 早前是 .62，透得太多，列表文字穿上来会糊。 */
@@ -269,32 +274,33 @@
   }
   .navitem{
     position:relative;z-index:1;
-    flex:1;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:2px;
+    flex:1;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:3px;
     height:44px;justify-content:center;
     padding:0;cursor:pointer;color:var(--tab-inactive);font-family:var(--font);
     border-radius:22px;transition:color .16s;
   }
-  .navitem svg{width:21px;height:21px;}
-  .navitem span{font-size:10px;font-weight:600;line-height:1;}
+  .navitem svg{width:23px;height:23px;}
+  .navitem span{font-size:12px;font-weight:600;line-height:1;}
   .navitem.on{color:var(--text1);}
   /* 选中焦点：整条导台只有**一颗**气泡（.navbubble），切页签时靠 left 过渡滑过去。
      原先是给 .navitem.on 画一个 ::before —— 每次切换都在旧位置消失、新位置重画一颗，
      看起来是「闪现」而不是「滑动」。
      位置用 calc 按索引算，避免 JS 反复测量：
-       导台内边距 4px；可用宽 = 100%(内边距盒) - 8px；页签间距 2px×(n-1)
+       导台内边距 6px；可用宽 = 100%(内边距盒) - 12px；页签间距 2px×(n-1)
        单签宽 w = (可用宽 - 2px×(n-1)) / n
-       第 i 颗的中心 = 4px + i×(w + 2px) + w/2；再左移半个气泡宽（28px）对齐 */
+       第 i 颗的中心 = 6px + i×(w + 2px) + w/2；再左移半个气泡宽（32px）对齐 */
   .navbubble{
     position:absolute;top:50%;z-index:0;pointer-events:none;
-    width:56px;height:52px;border-radius:50%;
+    /* 比高度更宽 ⇒ 渲染成左右拉长的胶囊，而不是正圆 */
+    width:64px;height:46px;border-radius:23px;
     background:rgba(255,255,255,.92);
     box-shadow:0 3px 10px rgba(17,17,19,.12);
     transform:translateY(-50%);
     left:calc(
-      4px
-      + var(--i) * (((100% - 8px - (var(--n) - 1) * 2px) / var(--n)) + 2px)
-      + ((100% - 8px - (var(--n) - 1) * 2px) / (var(--n) * 2))
-      - 28px
+      6px
+      + var(--i) * (((100% - 12px - (var(--n) - 1) * 2px) / var(--n)) + 2px)
+      + ((100% - 12px - (var(--n) - 1) * 2px) / (var(--n) * 2))
+      - 32px
     );
     transition:left .3s cubic-bezier(.4,0,.2,1);
   }
@@ -304,8 +310,8 @@
 
   /* ============ FAB ============ */
   .fab{
-    /* 抬到导台上方：导台底部 12px + 高度 52px，再留 14px 间隙避免压住最右侧页签 */
-    position:absolute;right:16px;bottom:78px;width:54px;height:54px;border-radius:19px;border:0;
+    /* 抬到导台上方：导台底部 12px + 高度 56px，再留 12px 间隙避免压住最右侧页签 */
+    position:absolute;right:16px;bottom:80px;width:54px;height:54px;border-radius:19px;border:0;
     /* 主操作保持实心强调色：导台已是半透明玻璃，FAB 再透明会失去「首要动作」的视觉权重。
        仅沿用导台的圆角与投影语言，使两者同属一套悬浮体系。 */
     background:var(--accent);color:var(--accent-fg);
@@ -355,19 +361,45 @@
   .fchip.on .n{background:rgba(255,255,255,.22);color:#fff;}
   .fchip.dim{opacity:.4;}
 
-  .field{padding:11px 0 3px;}
-  .field label{display:block;font-size:12px;font-weight:700;color:var(--text2);padding-bottom:6px;}
+  /* 表单字段。真机反馈「编辑页太密集」，因此整体放宽：
+     标签 12 → 13px、输入框内边距 11/13 → 13/14、字段上下间距 11 → 16px、
+     行内提示文案同步骤降一号层级，避免标签、正文、建议 chip 三级字号挤在一起。 */
+  .field{padding:16px 0 4px;}
+  .field label{display:block;font-size:13px;font-weight:700;color:var(--text2);padding-bottom:8px;}
   .field input{
-    width:100%;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:11px 13px;
-    font-size:14.5px;font-family:var(--font);color:var(--text1);outline:0;transition:border-color .16s;
+    width:100%;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:13px 14px;
+    font-size:15px;font-family:var(--font);color:var(--text1);outline:0;transition:border-color .16s;
   }
   .field input:focus{border-color:var(--text3);}
   .field .sugg{display:flex;gap:7px;flex-wrap:wrap;padding-top:8px;}
   .suggchip{
-    padding:5px 10px;border-radius:9px;background:var(--surface);font-size:12px;font-weight:600;color:var(--text2);
+    padding:7px 12px;border-radius:9px;background:var(--surface);font-size:13px;font-weight:600;color:var(--text2);
     cursor:pointer;border:0;font-family:var(--font);
   }
   .suggchip:active{background:var(--surface3);}
+
+  /* ---- 作曲家自动补全 ----
+     常用作曲家原先摊成一排 chip，占掉半屏且每多一个名字就更长。
+     改成输入框下的候选列表：只在聚焦且有匹配时出现，一次最多 6 条，
+     超出列表内部滚动。列表绝对定位、不参与文档流，因此弹出时不会把下方字段顶走。 */
+  .acwrap{position:relative;}
+  .aclist{
+    position:absolute;left:0;right:0;top:100%;z-index:5;margin-top:6px;
+    background:var(--surface);border-radius:12px;box-shadow:0 8px 26px rgba(17,17,19,.14);
+    border:1px solid var(--line);overflow:hidden;max-height:216px;overflow-y:auto;
+    scrollbar-width:none;
+  }
+  .aclist::-webkit-scrollbar{display:none;}
+  .acitem{
+    display:flex;align-items:baseline;gap:8px;width:100%;text-align:left;
+    padding:11px 13px;border:0;background:none;font-family:var(--font);cursor:pointer;
+  }
+  .acitem + .acitem{border-top:1px solid var(--line);}
+  .acitem.hl,.acitem:hover{background:var(--surface2);}
+  .acitem .aq{font-size:13px;font-weight:700;color:var(--text1);flex:0 0 auto;}
+  .acitem .af{font-size:12px;color:var(--text3);font-weight:600;min-width:0;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap;}
+  .acitem mark{background:none;color:var(--link);font-weight:800;}
 
   .btn{
     flex:1;border:0;border-radius:14px;padding:14px;font-size:15px;font-weight:700;font-family:var(--font);
@@ -573,6 +605,23 @@
   .attach .az{font-size:10.5px;color:var(--text3);font-weight:600;white-space:nowrap;}
   .kvnote{font-size:11px;color:var(--text3);line-height:1.6;margin:0 0 12px;font-weight:600;}
 
+  /* ---- 真机演示模式：把模拟状态栏压到应用界面之上 ----
+     正常评审时状态栏占在文档流里（与真实手机一致：应用内容从状态栏下方开始），
+     但这样在截图上分不清「有没有留白」。
+     加上 .simstatus 后改为叠层（position:absolute + z-index:100），
+     于是任何没留白的全屏界面都会被这层盖住 —— 重叠问题一眼可见。
+     这是评审开关，不是产品行为，由「演示直达 → 状态栏对照」切换。 */
+  .phone.simstatus .statusbar{
+    position:absolute;top:0;left:0;right:0;height:44px;z-index:100;
+    padding:0 22px 8px;background:rgba(244,244,246,.92);
+    border-bottom:1px solid var(--line);pointer-events:none;
+  }
+  /* 阅读器是深色纸面，状态栏叠上去会变白底，读不清 —— 给它一个深色版本。
+     用 .dark 类而不是 :has()：后者在部分内嵌浏览器里还没实现，
+     样式表跟着跑一份降级规则，保证两种环境都正确。 */
+  .phone.simstatus .statusbar.dark{background:rgba(17,17,19,.86);color:#fff;border-bottom-color:transparent;}
+  .phone.simstatus .statusbar.dark .icons i{background:#fff;}
+
   /* ---- 演示直达条（手机外壳之外的评审辅助，不属于产品界面） ---- */
   .demobar{
     position:fixed;left:14px;top:14px;z-index:99;display:flex;flex-direction:column;
@@ -668,6 +717,8 @@
   <button data-demo="share-text" data-page-node-id="Mjp6TVOsAKOBOUFkXVRehT">分享 · 纯文本</button>
   <button data-demo="detail">详情页</button>
   <button data-demo="me">我的页</button>
+  <button data-demo="edit">编辑乐谱</button>
+  <button data-demo="simstatus">状态栏对照（叠层）</button>
 </div>
 
 <script>
@@ -1119,6 +1170,10 @@ const state = {
   setTarget:null,        // 当前查看的谱单
   works:null,
   editDraft:null,
+  // 作曲家自动补全：当前展开的字段、当前关键词、键盘高亮项（-1 = 无）
+  acField:null,          // null | "composer"
+  acQuery:"",
+  acIndex:-1,
   composerQuery:"",
   aiOn:true,             // 「自动识别元数据」开关
   confirmArmed:null,     // 已进入确认态的危险操作节点
@@ -1716,6 +1771,10 @@ function openSheet(kind, target){
   if(kind === "edit"){
     state.editTarget = target || null;
     state.editDraft = Object.assign({}, target);
+    // 每次进编辑页都把候选状态清干净：否则会带着上一次的关键词与高亮进来
+    state.acField = null;
+    state.acQuery = "";
+    state.acIndex = -1;
     $("sheetTitle").textContent = "编辑乐谱";
     $("sheet").classList.toggle("tall", true);
   }else if(kind === "filter"){
@@ -1753,12 +1812,15 @@ function openSheet(kind, target){
 
 function closeSheet(){
   state.sheet = null;
-  // 弹层关闭后不留残骸：草稿、作用对象与未完成的确认态一起清掉，
-  // 否则下一次打开编辑弹层会短暂看到上一首乐谱的内容。
+  // 弹层关闭后不留残骸：草稿、作用对象、未完成的确认态与候选状态一起清掉，
+  // 否则下一次打开编辑弹层会短暂看到上一首乐谱的内容或上一次的候选关键词。
   state.editDraft = null;
   state.editTarget = null;
   state.moreTarget = null;
   state.setTarget = null;
+  state.acField = null;
+  state.acQuery = "";
+  state.acIndex = -1;
   disarmConfirm();
   $("scrim").classList.remove("on");
   $("sheet").classList.remove("on");
@@ -1858,20 +1920,68 @@ function renderFilterSheet(){
     <button class="btn primary" data-act="papply">查看 ${pendingResultCount()} 个结果</button>`;
 }
 
+/**
+ * 作曲家候选的高亮区间（返回的是**整串里的下标**，不是姓氏段内的相对下标）。
+ *
+ * 姓名形如「路德维希·范·贝多芬」，用户输入的多半是姓氏，因此优先在姓氏段
+ * 里找；找到后必须折算回整串下标，否则 mark 会标在错误的位置上。
+ * 姓氏段找不到才退到整串包含匹配。
+ */
+function composerMatchRange(full, q){
+  const surname = shortName(full);
+  if(surname && surname.includes(q)){
+    const base = full.length - surname.length;   // 姓氏段在整串中的起点
+    const i = surname.indexOf(q);
+    return [base + i, base + i + q.length];
+  }
+  const i = full.indexOf(q);
+  return i >= 0 ? [i, i + q.length] : null;
+}
+
+/** 按输入过滤作曲家候选：空输入给前 6 个常用姓氏，否则按「姓氏优先」匹配 */
+function composerSuggestions(q){
+  const names = Object.values(ALIAS);
+  const key = (q || "").trim();
+  if(!key) return names.slice(0, 6);
+  return names.filter(n => composerMatchRange(n, key)).slice(0, 6);
+}
+
 function editFieldHTML(key, label, placeholder, value, suggestions){
+  const list = suggestions ? `<div class="sugg">${suggestions.slice(0,6).map(s =>
+      `<button class="suggchip" data-act="sugg" data-k="${key}" data-v="${esc(s)}">${esc(s)}</button>`).join("")}</div>` : "";
   return `<div class="field">
     <label>${label}</label>
     <input data-edit="${key}" value="${esc(value)}" placeholder="${placeholder}" />
-    ${suggestions ? `<div class="sugg">${suggestions.slice(0,6).map(s =>
-      `<button class="suggchip" data-act="sugg" data-k="${key}" data-v="${esc(s)}">${esc(s)}</button>`).join("")}</div>` : ""}
+    ${list}
   </div>`;
 }
 
 function renderEditSheet(){
   const d = state.editDraft;
+  const q = (state.acQuery || "").trim();
+  const open = state.acField === "composer";
+  const items = open ? composerSuggestions(q) : [];
   $("sheetBody").innerHTML =
     editFieldHTML("title","标题","乐谱标题", d.title, null) +
-    editFieldHTML("composer","作曲家（点选下方常用姓氏自动填全名）","如 路德维希·范·贝多芬", d.composer, Object.values(ALIAS)) +
+    `<div class="field">
+      <label>作曲家</label>
+      <div class="acwrap">
+        <input data-edit="composer" data-ac="composer" value="${esc(d.composer)}"
+          placeholder="输入姓氏或全名，如 贝多芬" autocomplete="off" />
+        ${open ? (items.length ? `<div class="aclist">
+          ${items.map((n,i) => {
+            const r = composerMatchRange(n, q);
+            const inner = r
+              ? `${esc(n.slice(0,r[0]))}<mark>${esc(n.slice(r[0],r[1]))}</mark>${esc(n.slice(r[1]))}`
+              : esc(n);
+            return `<button class="acitem ${i===state.acIndex?"hl":""}" data-act="acpick" data-v="${esc(n)}">
+              <span class="aq">${esc(shortName(n))}</span><span class="af">${inner}</span></button>`;
+          }).join("")}
+        </div>` : `<div class="aclist"><div class="acitem" style="cursor:default">
+          <span class="aq" style="color:var(--text3)">没有匹配的作曲家</span>
+          <span class="af">可直接输入自定义姓名</span></div></div>`) : ""}
+      </div>
+    </div>` +
     editFieldHTML("type","曲目类型","如 奏鸣曲", d.type, TYPES) +
     editFieldHTML("instrument","乐器","如 钢琴", d.instrument, INSTRUMENTS) +
     editFieldHTML("period","时期 / 风格","如 浪漫", d.period, PERIODS) +
@@ -2162,6 +2272,20 @@ document.addEventListener("click", ev => {
       const k = el.dataset.k;
       const inp = document.querySelector(`input[data-edit="${k}"]`);
       if(inp){ inp.value = el.dataset.v; state.editDraft[k] = el.dataset.v; }
+      break;
+    }
+    case "acpick": {
+      // 选中候选：写入草稿。列表与输入框是同一段 DOM 的兄弟节点，
+      // 若此刻整体重绘会把刚聚焦的输入框焦点丢掉（iOS 上还会弹回键盘收起），
+      // 因此这里只就地改值，然后关闭候选列表。
+      const v = el.dataset.v;
+      state.editDraft.composer = v;
+      state.acQuery = v;
+      state.acField = null;
+      state.acIndex = -1;
+      const inp = document.querySelector(`input[data-ac="composer"]`);
+      if(inp) inp.value = v;
+      renderSheet();
       break;
     }
     case "esave": {
@@ -3128,11 +3252,16 @@ function openReader(score, forcePhase){
   renderReader();
   $("crash").classList.remove("on");
   $("readerLayer").classList.add("on");
+  // 模拟状态栏在阅读器打开时转深色（真机上这里同时会切成浅色图标）
+  const sb = document.querySelector(".statusbar");
+  if(sb) sb.classList.add("dark");
 }
 
 function closeReader(){
   state.reader = null;
   $("readerLayer").classList.remove("on");
+  const sb = document.querySelector(".statusbar");
+  if(sb) sb.classList.remove("dark");
 }
 
 /* ---- 阅读器顶栏文案：对译 domain/ReaderBarText.kt ----
@@ -3194,6 +3323,12 @@ function renderReader(){
       ${badge ? `<span class="pagebadge">${badge}</span>` : ""}
     </div>
     <div class="readerbody" id="readerBody">${body}</div>`;
+
+  // 阅读器打开时状态栏转深色（真机上同时会切成浅色图标）。
+  // 放在 renderReader 里而不是只在 openReader 里设一次：
+  // 任何一次重绘都要保住这个状态，否则截图/切页后会闪回白底。
+  const sb = document.querySelector(".statusbar");
+  if(sb) sb.classList.add("dark");
 
   if(r.phase === "ready"){ layoutReaderPage(); paintReaderPage(); }
 }
@@ -3346,7 +3481,65 @@ document.addEventListener("input", ev => {
     const ni = $("searchInput");
     if(ni){ ni.focus(); ni.setSelectionRange(pos,pos); }
   }
-  if(t.dataset && t.dataset.edit) state.editDraft[t.dataset.edit] = t.value;
+  if(t.dataset && t.dataset.edit){
+    state.editDraft[t.dataset.edit] = t.value;
+    // 作曲家框边打字边过滤候选。只重绘弹层主体，不重绘整页，
+    // 否则输入框本身被换掉，光标会跳到末尾。
+    if(t.dataset.ac === "composer"){
+      state.acField = "composer";
+      state.acQuery = t.value;
+      state.acIndex = -1;
+      renderSheet();
+      const again = document.querySelector(`input[data-ac="composer"]`);
+      if(again){ again.focus(); again.setSelectionRange(t.value.length, t.value.length); }
+    }
+  }
+});
+
+/* 聚焦作曲家框即展开候选（空输入时先给常用姓氏，等于把原来的快捷 chip 收进输入框） */
+document.addEventListener("focusin", ev => {
+  const t = ev.target;
+  if(t && t.dataset && t.dataset.ac === "composer" && state.sheet === "edit"){
+    state.acField = "composer";
+    state.acQuery = t.value;
+    state.acIndex = -1;
+    renderSheet();
+    const again = document.querySelector(`input[data-ac="composer"]`);
+    if(again){ again.focus(); again.setSelectionRange(t.value.length, t.value.length); }
+  }
+});
+
+/* 键盘上下键移动高亮、回车选中、Esc 收起候选 */
+document.addEventListener("keydown", ev => {
+  if(state.sheet !== "edit" || state.acField !== "composer") return;
+  const t = ev.target;
+  if(!t || !t.dataset || t.dataset.ac !== "composer") return;
+  const items = composerSuggestions(state.acQuery || "");
+  if(ev.key === "ArrowDown" || ev.key === "ArrowUp"){
+    if(!items.length) return;
+    ev.preventDefault();
+    const step = ev.key === "ArrowDown" ? 1 : -1;
+    state.acIndex = (state.acIndex + step + items.length + 1) % (items.length + 1) - 1;
+    if(state.acIndex < 0) state.acIndex = step > 0 ? 0 : items.length - 1;
+    renderSheet();
+    const again = document.querySelector(`input[data-ac="composer"]`);
+    if(again){ again.focus(); again.setSelectionRange(t.value.length, t.value.length); }
+    return;
+  }
+  if(ev.key === "Enter" && state.acIndex >= 0 && items[state.acIndex]){
+    ev.preventDefault();
+    state.editDraft.composer = items[state.acIndex];
+    state.acQuery = items[state.acIndex];
+    state.acField = null;
+    state.acIndex = -1;
+    renderSheet();
+    return;
+  }
+  if(ev.key === "Escape"){
+    state.acField = null;
+    state.acIndex = -1;
+    renderSheet();
+  }
 });
 
 $("sheetClose").addEventListener("click", closeSheet);
@@ -3446,6 +3639,12 @@ function runDemo(name){
     case "me":             state.tab = "me"; renderMain(); break;
     // 详情页用带 PDF 的那首（月光），让「查看乐谱」可直接点进阅读器
     case "detail":         if(withPdf) openDetail(withPdf); break;
+    // 编辑页默认开在「月光」上：它元数据最全，最容易看出表单密度
+    case "edit":           if(withPdf) openSheet("edit", withPdf); break;
+    // 叠一层模拟状态栏，用来对照「顶栏有没有被系统状态栏压住」
+    case "simstatus":
+      document.querySelector(".phone").classList.toggle("simstatus");
+      break;
   }
 }
 
@@ -3471,8 +3670,13 @@ const APP_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 1
   // 演示崩溃恢复浮层（4 秒后自动收起）；打开阅读器或选择器时让位
   setTimeout(()=>{ if(!state.reader && !state.picker && !state.sheet) $("crash").classList.add("on"); }, 1200);
   setTimeout(()=>{ $("crash").classList.remove("on"); }, 9000);
-  // 允许用 `#demo=<场景>` 直达某个演示状态，方便截图与评审
+  // 允许用 `#demo=<场景>` 直达某个演示状态，方便截图与评审。
+  // 额外支持 `#sim=1`：直接开「叠层状态栏」对照模式，
+  // 这样一张邀请截图就能说明顶栏有没有被系统状态栏压住，不必现场点开关。
   const m = /(?:^|[#&])demo=([\w-]+)/.exec(location.hash || "");
+  if(/(?:^|[#&])sim=1/.test(location.hash || "")){
+    document.querySelector(".phone").classList.add("simstatus");
+  }
   if(m && typeof runDemo === "function"){
     const b = $("demobar").querySelector(`[data-demo="${m[1]}"]`);
     if(b) b.classList.add("on");

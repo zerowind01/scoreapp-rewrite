@@ -61,6 +61,38 @@ function makeEl(id) {
   };
 }
 
+/**
+ * 给真实 DOM 桩补上一个最小「元素树」。
+ *
+ * 编辑页的作曲家补全要按输入实时过滤候选，而候选既可能以「独立浮层」
+ * 渲染、也可能退化成内联面板；两种形态的检查都得能查得到节点，
+ * 因此桩元素需要一个真的能挂子节点的容器，而不是一个空壳。
+ */
+function makeChild(tag, attrs){
+  const el = makeEl(tag);
+  el.tagName = tag;
+  el.attrs = attrs || {};
+  el.getAttribute = (k) => (k in el.attrs ? el.attrs[k] : null);
+  el.children = [];
+  el.appendChild = (c) => { el.children.push(c); return c; };
+  el.querySelectorAll = (sel) => {
+    const out = [];
+    const wantCls = (sel.match(/^\\.([\\w-]+)$/) || [])[1];
+    const wantTag = /^[a-z]+$/i.test(sel) ? sel.toLowerCase() : null;
+    const walk = (n) => {
+      for (const c of n.children || []) {
+        const cls = (c.attrs && c.attrs.class) || "";
+        if ((wantCls && cls.split(/\\s+/).includes(wantCls)) ||
+            (wantTag && (c.tagName || "").toLowerCase() === wantTag)) out.push(c);
+        walk(c);
+      }
+    };
+    walk(el);
+    return out;
+  };
+  return el;
+}
+
 const els = new Map();
 const document = {
   getElementById(id) {
@@ -70,7 +102,7 @@ const document = {
   querySelectorAll() { return []; },
   querySelector() { return null; },
   addEventListener() {},
-  createElement(tag) { return makeEl(tag); },
+  createElement(tag) { return makeChild(tag); },
   body: makeEl("body"),
   documentElement: makeEl("html"),
 };
@@ -94,6 +126,8 @@ const exportTail = `
   SURNAME_INITIAL, ALIAS,
   normalizeDraft, metaLine, fmtDate, importScore,
   openDetail, renderMoreSheet, renderBottomNav, renderMain,
+  openSheet, renderSheet, renderEditSheet, closeSheet,
+  composerSuggestions, composerMatchRange,
   DIM_LABEL, topValue,
   probeCoverDraw,
   // 文件链路（导入 / 落盘 / 打开 / 分享）
@@ -761,6 +795,101 @@ T.state.filters = { composer: new Set(), type: new Set(), instrument: new Set() 
   eq("切页签后导台结构不重建", nav.innerHTML, before);
   S.tab = keep;
   T.renderMain();
+}
+
+// ---------------- 22. 编辑页：作曲家自动补全 ----------------
+{
+  const score = T.SCORES[0];
+  T.openSheet("edit", score);
+  const html = els.get("sheetBody").innerHTML;
+
+  // 常用作曲家原先摊成一排 chip，占掉半屏；现改为输入框 + 候选列表。
+  // 其余字段（曲目类型/乐器…）仍保留 chip 行，这里只断言作曲家这一项被换掉。
+  ok("作曲家字段改成带 data-ac 的输入框", /data-ac="composer"/.test(html));
+  const composerField = html.slice(html.indexOf('data-ac="composer"'));
+  const nextField = composerField.indexOf('data-edit="type"');
+  ok("作曲家字段不再挂建议 chip", !composerField.slice(0, nextField).includes('data-act="sugg"'));
+  ok("未聚焦时不渲染候选列表", !html.includes("aclist"));
+  ok("字段标签不再写「点选下方常用姓氏」", !html.includes("点选下方常用姓氏"));
+
+  // 打开编辑页必须把候选状态清干净，否则会带着上一次的关键词进来
+  eq("打开编辑页时候选状态已复位", [S.acField, S.acQuery, S.acIndex], [null, "", -1]);
+
+  // 空关键词 = 原来的「常用姓氏」快捷入口，收进了输入框
+  eq("空关键词给出 6 条常用候选", T.composerSuggestions("").length, 6);
+
+  // 输入「贝」应命中贝多芬；高亮区间落在「姓」那一段，而不是「路德维希」里的某个字
+  const beethoven = "路德维希·范·贝多芬";
+  ok("按中文输入能匹配到作曲家", T.composerSuggestions("贝").includes(beethoven));
+  const r = T.composerMatchRange(beethoven, "贝");
+  eq("匹配区间指向姓氏段", r, [beethoven.indexOf("贝"), beethoven.indexOf("贝") + 1]);
+  ok("匹配区间确实命中「贝」", beethoven.slice(r[0], r[1]) === "贝");
+  // 「维」在「路德维希」里也出现过，但姓氏段优先，不该回退到前段匹配
+  const rv = T.composerMatchRange(beethoven, "希");
+  eq("姓氏段优先于前段包含匹配", rv, [beethoven.indexOf("希"), beethoven.indexOf("希") + 1]);
+
+  // 无匹配时返回空数组（渲染层据此给出「没有匹配」提示）
+  eq("无匹配返回空候选", T.composerSuggestions("zzz").length, 0);
+
+  // 候选上限 6 条：列表是绝对定位浮层，再多会把下半屏全盖住
+  ok("候选数量不超过 6 条", T.composerSuggestions("").length <= 6);
+
+  // 展开候选：列表挂进 DOM，且命中项被高亮标记
+  S.acField = "composer";
+  S.acQuery = "贝";
+  T.renderEditSheet();
+  const opened = els.get("sheetBody").innerHTML;
+  ok("展开后渲染候选列表", opened.includes("aclist"));
+  ok("候选项带选中语义 data-act=\"acpick\"", opened.includes('data-act="acpick"'));
+  ok("命中片段被 mark 高亮", opened.includes("<mark>"));
+
+  // 退化成「无匹配」提示时仍是绝对定位浮层，不会把下方字段顶走
+  S.acQuery = "zzz";
+  T.renderEditSheet();
+  const none = els.get("sheetBody").innerHTML;
+  ok("无匹配时给提示而不是空浮层", none.includes("没有匹配的作曲家"));
+  ok("无匹配提示也走浮层（不挤动文档流）", none.includes('class="aclist"'));
+
+  T.closeSheet();
+  eq("关闭弹层后候选状态一并清掉", [S.acField, S.acQuery, S.acIndex], [null, "", -1]);
+}
+
+// ---------------- 23. 表单密度（真机反馈「太密集」） ----------------
+{
+  const css = html;
+  ok("字段上下间距放大到 16px", /\.field\{padding:16px 0 4px;\}/.test(css));
+  ok("字段标签字号放大到 13px", /\.field label\{display:block;font-size:13px/.test(css));
+  ok("输入框正文字号放大到 15px", /font-size:15px;font-family:var\(--font\)/.test(css));
+  ok("建议 chip 同步放大到 13px", /\.suggchip\{\s*padding:7px 12px[^}]*font-size:13px/.test(css));
+}
+
+// ---------------- 24. 列表快捷入口与底栏尺寸（按参考图） ----------------
+{
+  const css = html;
+  // 真机反馈「快捷入口太小」
+  ok("快捷入口命中区放大到 34px", /\.cardacts \.ca\{\s*width:34px;height:34px/.test(css));
+  ok("快捷入口图标放大到 18px", /\.cardacts \.ca svg\{width:18px;height:18px;\}/.test(css));
+  ok("快捷入口间距放到 4px（防相邻误触）", /\.cardacts\{display:flex;align-items:center;gap:4px/.test(css));
+
+  // 底栏：字体/焦点/高度/边距四项
+  ok("页签文字放大到 12px", /\.navitem span\{font-size:12px/.test(css));
+  ok("页签图标放大到 23px", /\.navitem svg\{width:23px;height:23px;\}/.test(css));
+  ok("焦点气泡拉宽成 64×46 胶囊", /width:64px;height:46px;border-radius:23px/.test(css));
+  ok("导台左右边距放大到 16px", /left:16px;right:16px;bottom:12px/.test(css));
+  // 圆角必须等于高度一半（56/2=28），两端才是半圆收口而不是圆角矩形
+  ok("导台内边距 +2px（高度 56）", /padding:6px;\s*\n\s*border-radius:28px/.test(css));
+  ok("内容避让空间同步放大到 96px", /\.with-nav \.scroll\{padding-bottom:96px;\}/.test(css));
+}
+
+// ---------------- 25. 真机演示模式（状态栏对照） ----------------
+{
+  const css = html;
+  ok("提供叠层状态栏的演示开关", /\.phone\.simstatus \.statusbar\{/.test(css));
+  ok("叠层状态栏 z-index 高于应用界面", /z-index:100/.test(css));
+  ok("演示条有「状态栏对照」入口", /data-demo="simstatus"/.test(css));
+  ok("演示条有「编辑乐谱」入口", /data-demo="edit"/.test(css));
+  // 阅读器打开时状态栏转深色，否则白底压在纸面上读不清
+  ok("阅读器状态栏有深色变体", /\.statusbar\.dark/.test(css));
 }
 
 // ---------------- 汇总 ----------------
