@@ -32,7 +32,7 @@
 prototype/scoreapp-prototype.html
 ```
 
-跑一遍业务逻辑回归测试（68 项断言）：
+跑一遍业务逻辑回归测试（83 项断言）：
 
 ```bash
 node prototype/regression-test.js
@@ -55,7 +55,7 @@ Windows 用户也可直接运行 `build.bat`（或 Git Bash 下 `./build.sh`）�
 
 产物：`ScoreAppCompose/composeApp/build/outputs/apk/debug/composeApp-debug.apk`
 
-跑业务层单元测试（40 项断言，`commonTest`，不依赖 Android 运行时）：
+跑业务层单元测试（50 项断言，`commonTest`，不依赖 Android 运行时）：
 
 ```bash
 ./gradlew :composeApp:testDebugUnitTest
@@ -72,13 +72,13 @@ Windows 用户也可直接运行 `build.bat`（或 Git Bash 下 `./build.sh`）�
 .
 ├── prototype/                      # 交付物 1：HTML 交互原型
 │   ├── scoreapp-prototype.html     #   单文件应用（390×844 手机外壳）
-│   └── regression-test.js          #   68 项业务逻辑断言
+│   └── regression-test.js          #   83 项业务逻辑断言
 │
 └── ScoreAppCompose/                # 交付物 2：Compose Multiplatform 工程
     ├── composeApp/src/
     │   ├── commonMain/             #   平台无关：模型 / 领域逻辑 / 数据 / 全部 UI
     │   ├── androidMain/            #   平台实现：Activity / Manifest / 资源
-    │   └── commonTest/             #   40 项业务层断言
+    │   └── commonTest/             #   50 项业务层断言
     ├── gradle/                     #   wrapper 与版本目录
     ├── build.sh / build.bat        #   一键打包脚本
     └── README.md                   #   完整工程文档
@@ -92,9 +92,11 @@ Windows 用户也可直接运行 `build.bat`（或 Git Bash 下 `./build.sh`）�
 
 - **乐谱库**：列表 / 网格切换、搜索、按标题·作曲家·曲目类型·乐器·时期·难度·来源筛选、多维分组
 - **暂存式筛选**：弹层内的改动先暂存，确认后才落库，并给出「已筛选出 N 首乐谱」反馈
-- **详情页**：封面缩略图（程序化绘制）+ 元数据面板 + 分类归属面板（列出所属谱单）+ 分享主操作
+- **详情页**：封面缩略图（程序化绘制）+ 元数据面板（含添加时间）+ 分类归属面板（反查所属谱单）+ 分享主操作
+- **导入乐谱**：相册图片合成 / 直接选 PDF，导入后真实写入曲库
 - **作曲家**：A–Z 索引分组、姓氏/全名双行展示、作品数徽标，可下钻到作品页
-- **我的**：谱单、管理、设置等入口
+- **我的**：谱单、管理、设置等入口；设置项均可交互（自动识别元数据为可切换开关）
+- **危险操作防护**：删除为两段式确认，3 秒无操作自动复原
 
 ## 技术栈
 
@@ -103,7 +105,7 @@ Windows 用户也可直接运行 `build.bat`（或 Git Bash 下 `./build.sh`）�
 | 原型 | 原生 HTML / CSS / JS，零依赖，Canvas 2D 绘制缩略图 |
 | 工程 | Kotlin 2.1.21 + Compose Multiplatform 1.8.2 |
 | 构建 | Gradle 8.10.2 + AGP 8.7.3，compileSdk / targetSdk 35，minSdk 24 |
-| 测试 | Node（原型 68 项）+ kotlin-test（工程 40 项） |
+| 测试 | Node（原型 83 项）+ kotlin-test（工程 50 项） |
 
 ---
 

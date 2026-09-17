@@ -160,7 +160,10 @@
   .setcard{
     background:var(--surface);border-radius:var(--r-card);padding:14px;display:flex;gap:14px;
     box-shadow:0 1px 3px rgba(17,17,19,.07);cursor:pointer;align-items:center;
+    transition:box-shadow .35s ease, transform .35s ease;
   }
+  /* 从别处跳转到某个谱单时的临时高亮，便于用户一眼定位 */
+  .setcard.hl{box-shadow:0 0 0 2px var(--link), 0 6px 18px rgba(10,114,196,.18);transform:translateY(-1px);}
   .stack{position:relative;width:86px;height:104px;flex:0 0 auto;}
   .stack canvas{position:absolute;border-radius:6px;box-shadow:0 1px 4px rgba(17,17,19,.16);background:#FBF9F4;}
 
@@ -779,6 +782,8 @@ const SETS = [
 const state = {
   tab:"manage",          // manage | composers | me
   libTab:"scores",       // scores | sets
+  highlightSet:null,     // 从别处跳转到合集页时高亮的谱单名
+  highlightTimer:null,
   query:"",
   searchOpen:false,
   filters:{composer:new Set(), type:new Set(), instrument:new Set()},
@@ -1038,7 +1043,7 @@ function renderSetsTab(){
     ${SETS.map((set,i) => {
       const items = setMembers(set);
       const cnt = items.length;
-      return `<article class="setcard" data-act="openset" data-i="${i}">
+      return `<article class="setcard ${state.highlightSet===set.name?"hl":""}" data-act="openset" data-i="${i}" data-name="${esc(set.name)}">
         <div class="stack">
           ${items.slice(0,3).map((s,k) => {
             const off = [0,5,10][k], sc = [1,0.955,0.91][k];
@@ -1265,6 +1270,7 @@ function openDetail(score){
         <div class="kv"><span class="k">难度</span><span class="v">${esc(s.level)}</span></div>
         <div class="kv"><span class="k">来源</span><span class="v">${esc(s.source)}</span></div>
         <div class="kv"><span class="k">页数</span><span class="v">${s.pages > 0 ? s.pages + " 页" : "—"}</span></div>
+        <div class="kv"><span class="k">添加时间</span><span class="v">${fmtDate(s.dateAdded)}</span></div>
       </div>
     </div>
 
@@ -1689,8 +1695,25 @@ document.addEventListener("click", ev => {
 
     case "opensetplay": {
       const set = state.setTarget;
-      toast(`打开谱单：${set.name}`);
-      closeSheet(); break;
+      if(!set) break;
+      // 真跳转：切到「合集」页签并定位到该谱单，而不是只弹一句提示
+      state.tab = "manage";
+      state.libTab = "sets";
+      state.highlightSet = set.name;
+      closeSheet();
+      renderMain();
+      requestAnimationFrame(() => {
+        const card = document.querySelector(`.setcard[data-name="${CSS.escape(set.name)}"]`);
+        if(card) card.scrollIntoView({behavior:"smooth", block:"center"});
+      });
+      toast(`已定位到谱单：${set.name}`);
+      clearTimeout(state.highlightTimer);
+      state.highlightTimer = setTimeout(() => {
+        state.highlightSet = null;
+        const card = document.querySelector(`.setcard[data-name="${CSS.escape(set.name)}"]`);
+        if(card) card.classList.remove("hl");
+      }, 1800);
+      break;
     }
 
     /* ---- 筛选弹层 ---- */
@@ -1752,11 +1775,11 @@ document.addEventListener("click", ev => {
     /* ---- 导入 ---- */
     case "pickimages":
       closeSheet();
-      toast("已生成 PDF 并加入乐谱库：相册乐谱 · " + new Date().toLocaleDateString("zh-CN"));
+      importScore(true, 2);
       break;
     case "pickpdf":
       closeSheet();
-      toast("已导入 PDF：" + "本地乐谱_" + Date.now().toString().slice(-6));
+      importScore(false, 1);
       break;
   }
 });
@@ -1788,6 +1811,37 @@ function doOpenPdf(score){
   if(!score) return;
   if(score.filePath || score.assetPdf) toast("打开乐谱：" + (score.filePath || score.assetPdf));
   else toast("这份乐谱还没有 PDF 文件，可在列表里导入");
+}
+
+/**
+ * 导入一份乐谱：真正写入曲库，而不是只弹一句提示。
+ *
+ * 原先导入路径只 toast、不落库（`SCORE_SEQ` / `mk` 的分配能力因此被闲置），
+ * 用户点完「从相册选择图片」列表里什么都不会多出来。
+ * 这里复用 `mk` 分配新 id 并登记添加时间，同时补上虚拟的 filePath，
+ * 使分享 / 打开 PDF 有文件可指。
+ *
+ * @param {boolean} fromAlbum  true 表示来自相册图片合成，false 表示直接选中的 PDF
+ * @param {number}  pageCount  页数（相册合成通常多页）
+ */
+function importScore(fromAlbum, pageCount){
+  const stamp = Date.now();
+  const shortStamp = String(stamp).slice(-6);
+  const title = fromAlbum ? `相册乐谱 · ${shortStamp}` : `本地乐谱_${shortStamp}`;
+  const score = mk(
+    title, "佚名", "未编目", "未分类", "未指定", "—",
+    fromAlbum ? "相册导入" : "本地导入",
+    pageCount > 0 ? pageCount : 1,
+    {
+      dateAdded: stamp,
+      filePath: `files/scores/import_${title}_${stamp}.pdf`,
+      thumbRows: pageCount >= 6 ? 6 : (pageCount <= 3 ? 3 : 5)
+    }
+  );
+  // 新导入的乐谱置顶，符合「最近添加」的直觉
+  SCORES.unshift(score);
+  toast(`已加入乐谱库：${title}`);
+  renderMain();
 }
 
 /* 输入事件 */

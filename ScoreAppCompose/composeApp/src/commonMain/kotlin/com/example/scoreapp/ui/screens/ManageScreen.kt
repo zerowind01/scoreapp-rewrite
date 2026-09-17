@@ -370,6 +370,7 @@ private fun SetsTab(state: ScoreAppState, bottomPadding: Dp) {
                 set = set,
                 members = membersOf(state, set.seeds),
                 onOpen = { state.openSet(set) },
+                highlighted = state.highlightSet == set.name,
             )
         }
     }

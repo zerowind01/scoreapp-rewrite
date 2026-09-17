@@ -17,6 +17,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
@@ -30,6 +31,7 @@ import com.example.scoreapp.ui.components.SheetGhostButton
 import com.example.scoreapp.ui.components.SheetPrimaryButton
 import com.example.scoreapp.ui.components.SheetScaffold
 import com.example.scoreapp.ui.theme.Tokens
+import kotlinx.coroutines.delay
 
 /**
  * 「编辑乐谱」弹层。
@@ -42,15 +44,24 @@ import com.example.scoreapp.ui.theme.Tokens
 fun EditSheet(state: ScoreAppState, onDismiss: () -> Unit) {
     val draft = state.editing ?: return
 
+    // 与「更多」弹层一致：确认态 3 秒无操作自动复原，避免残留
+    LaunchedEffect(state.deleteArmed) {
+        if (state.deleteArmed) {
+            delay(3000)
+            state.disarmDelete()
+        }
+    }
+
     SheetScaffold(
         title = "编辑乐谱",
         onDismiss = onDismiss,
         footer = {
             SheetDangerButton(
-                label = "删除",
+                // 两段式确认：首点切到「确认删除」，再点才真正执行，避免与「保存」误触
+                label = if (state.deleteArmed) "确认删除" else "删除",
                 onClick = {
-                    state.allScores.firstOrNull { it.id == state.editingId }?.let(state::delete)
-                    onDismiss()
+                    val target = state.allScores.firstOrNull { it.id == state.editingId }
+                    if (target != null) state.requestDelete(target)
                 },
                 modifier = Modifier.width(88.dp),
             )

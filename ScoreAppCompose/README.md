@@ -111,9 +111,10 @@ gradlew.bat :composeApp:assembleDebug --offline
 
 - 封面右上角叠加「编辑」角标，不占用正文空间
 - 头部元信息行为 `曲目类型 · 乐器 · 时期 / 风格 · 难度`，空白字段自动剔除
-- `元数据` 面板 7 行：作曲家 / 曲目类型 / 乐器 / 时期 · 风格 / 难度 / 来源 / 页数
-- 页数为 0 时显示 `—`
-- 「更多」收拢打开乐谱与删除两个次级动作
+- `元数据` 面板 8 行：作曲家 / 曲目类型 / 乐器 / 时期 · 风格 / 难度 / 来源 / 页数 / 添加时间
+- 页数为 0 时显示 `—`；添加时间由 `domain.formatDate` 格式化为 `yyyy-MM-dd HH:mm`
+- `分类归属` 面板列出该乐谱所属的谱单（`domain.setsOfScore` 反查），每行可点开谱单；未入谱单时显示 `尚未加入任何谱单`
+- 「更多」收拢打开乐谱与删除两个次级动作；删除为两段式确认（首点切换为「确认删除」，再点才执行）
 
 ### 作曲家
 
@@ -234,6 +235,7 @@ ScoreAppCompose/
         │   ├── domain/           纯业务逻辑（无 UI 依赖）
         │   │   ├── LibraryQuery.kt   搜索 / 筛选 / 分组 / 分面计数
         │   │   ├── ComposerNames.kt  姓名切分、字母索引、别名表
+        │   │   ├── ScoreMeta.kt      日期格式化、谱单成员解析与归属反查
         │   │   └── AvatarPalette.kt  头像配色推导
         │   ├── data/
         │   │   └── SampleLibrary.kt  内置样例曲库与表单选项
@@ -248,7 +250,8 @@ ScoreAppCompose/
         │       └── sheets/           六个底部弹层（含「更多」）
         ├── commonTest/kotlin/com/example/scoreapp/
         │   ├── LibraryQueryTest.kt   查询 / 筛选 / 分组 / 分面 / 姓名索引
-        │   └── DraftAndMetaTest.kt   保存归一化 / 详情页元信息行
+        │   ├── DraftAndMetaTest.kt   保存归一化 / 详情页元信息行
+        │   └── ScoreMetaTest.kt      日期格式化 / 谱单成员解析 / 归属反查
         └── androidMain/
             ├── AndroidManifest.xml
             ├── kotlin/.../MainActivity.kt
@@ -318,7 +321,7 @@ ScoreAppCompose/
 不会各自漂移：
 
 ```bash
-# 原型：68 项断言（最小 DOM 桩加载原型脚本）
+# 原型：83 项断言（最小 DOM 桩加载原型脚本）
 node prototype/regression-test.js
 
 # 工程：业务层单元测试（commonTest，不依赖 Android 运行时）

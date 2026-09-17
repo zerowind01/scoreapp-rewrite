@@ -31,6 +31,9 @@ import com.example.scoreapp.ui.theme.Tokens
 /**
  * 谱单卡片。左侧用几张缩略图错位叠放成「一叠乐谱」的意象，
  * 越靠前的卡片越大、越不透明。
+ *
+ * @param highlighted 是否高亮。用于「打开谱单」跳转过来时定位目标，
+ *                    由 [com.example.scoreapp.ui.ScoreAppState.highlightSet] 驱动。
  */
 @Composable
 fun ScoreSetCard(
@@ -38,6 +41,7 @@ fun ScoreSetCard(
     members: List<Score>,
     onOpen: () -> Unit,
     modifier: Modifier = Modifier,
+    highlighted: Boolean = false,
 ) {
     Surface(
         modifier = modifier
@@ -46,7 +50,13 @@ fun ScoreSetCard(
             .clickable(onClick = onOpen),
         shape = RoundedCornerShape(Tokens.RadiusCard),
         color = Tokens.Surface,
-        shadowElevation = 1.dp,
+        // 高亮时描一圈品牌蓝，便于用户在列表中一眼定位刚跳转过来的谱单
+        border = if (highlighted) {
+            androidx.compose.foundation.BorderStroke(2.dp, Tokens.LinkBlue)
+        } else {
+            null
+        },
+        shadowElevation = if (highlighted) 6.dp else 1.dp,
     ) {
         Row(
             modifier = Modifier.padding(14.dp),

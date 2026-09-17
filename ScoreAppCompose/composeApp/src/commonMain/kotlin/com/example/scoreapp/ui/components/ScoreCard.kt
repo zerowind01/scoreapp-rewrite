@@ -1,5 +1,6 @@
 package com.example.scoreapp.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -54,14 +55,35 @@ fun ScoreCard(
                 modifier = Modifier.padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp),
             ) {
-                ScoreThumb(
-                    score = score,
-                    dense = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(118.dp)
-                        .clip(RoundedCornerShape(Tokens.RadiusThumb)),
-                )
+                Box {
+                    ScoreThumb(
+                        score = score,
+                        dense = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(118.dp)
+                            .clip(RoundedCornerShape(Tokens.RadiusThumb)),
+                    )
+                    // 网格视图原先没有编辑入口（避免挤占窄卡片），
+                    // 改为把编辑按钮浮在缩略图右上角，既保留入口又不占正文空间
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(5.dp)
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(Tokens.Surface2)
+                            .clickable(onClick = onEdit),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = AppIcons.Edit,
+                            contentDescription = "编辑",
+                            tint = Tokens.Text2,
+                            modifier = Modifier.size(13.dp),
+                        )
+                    }
+                }
                 CardBody(score, onEdit, showMore = false, modifier = Modifier.fillMaxWidth())
             }
         } else {

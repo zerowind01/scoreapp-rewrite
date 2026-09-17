@@ -34,6 +34,7 @@ import com.example.scoreapp.model.FilterDim
 import com.example.scoreapp.ui.ScoreAppState
 import com.example.scoreapp.ui.components.AppIcons
 import com.example.scoreapp.ui.components.HairlineDivider
+import com.example.scoreapp.ui.components.SectionHead
 import com.example.scoreapp.ui.theme.Tokens
 
 /**
@@ -116,19 +117,38 @@ fun MeScreen(state: ScoreAppState, bottomPadding: Dp) {
 
         item { SectionHead("元数据") }
         item {
+            // 纯展示行：统计口径实时推导，不承载动作，点击不做任何事
             ListPanel {
-                ListItem(AppIcons.Person, "作曲家", "$composerCount 位")
-                ListItem(AppIcons.Book, "曲目类型", "$typeCount 类")
-                ListItem(AppIcons.MusicNote, "乐器", "$instrumentCount 种")
+                ListItem(AppIcons.Person, "作曲家", "$composerCount 位", onClick = {})
+                ListItem(AppIcons.Book, "曲目类型", "$typeCount 类", onClick = {})
+                ListItem(AppIcons.MusicNote, "乐器", "$instrumentCount 种", onClick = {})
             }
         }
 
         item { SectionHead("设置") }
         item {
             ListPanel {
-                ListItem(AppIcons.Download, "导入与存储", "本地 128 MB", showArrow = true)
-                ListItem(AppIcons.Sort, "自动识别元数据", "已开启", valueColor = Tokens.PillLive)
-                ListItem(AppIcons.Cleaning, "清理缓存", "24 MB", showArrow = true)
+                ListItem(
+                    icon = AppIcons.Download,
+                    label = "导入与存储",
+                    value = "本地 128 MB",
+                    showArrow = true,
+                    onClick = { state.showStorageInfo() },
+                )
+                ListItem(
+                    icon = AppIcons.Sort,
+                    label = "自动识别元数据",
+                    value = if (state.aiOn) "已开启" else "已关闭",
+                    valueColor = if (state.aiOn) Tokens.PillLive else Tokens.Text3,
+                    onClick = { state.toggleAi() },
+                )
+                ListItem(
+                    icon = AppIcons.Cleaning,
+                    label = "清理缓存",
+                    value = "24 MB",
+                    showArrow = true,
+                    onClick = { state.clearCache() },
+                )
             }
         }
     }
@@ -157,17 +177,6 @@ private fun StatCard(value: String, label: String, modifier: Modifier = Modifier
 }
 
 @Composable
-private fun SectionHead(title: String) {
-    Text(
-        text = title,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.ExtraBold,
-        color = Tokens.Text2,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 8.dp),
-    )
-}
-
-@Composable
 private fun ListPanel(content: @Composable () -> Unit) {
     Surface(
         modifier = Modifier
@@ -188,13 +197,14 @@ private fun ListItem(
     value: String,
     valueColor: androidx.compose.ui.graphics.Color = Tokens.Text3,
     showArrow: Boolean = false,
+    onClick: () -> Unit,
 ) {
     Column {
         HairlineDivider(Modifier.padding(start = 50.dp))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { }
+                .clickable(onClick = onClick)
                 .padding(horizontal = 14.dp, vertical = 13.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),

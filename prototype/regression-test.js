@@ -89,7 +89,7 @@ const exportTail = `
   facetCount, pendingResultCount, facetValues, distinct, composerGroups,
   setMembers, setsOfScore, scoreById,
   SURNAME_INITIAL, ALIAS,
-  normalizeDraft, metaLine,
+  normalizeDraft, metaLine, fmtDate, importScore,
 };
 `;
 
@@ -339,6 +339,34 @@ eq(
   T.metaLine({ type: "奏鸣曲", instrument: "", period: "古典", level: "" }),
   "奏鸣曲 · 古典",
 );
+
+// ---------------- 14. 添加时间格式化 ----------------
+// 详情页「元数据」面板新增「添加时间」一行，直接展示 fmtDate(dateAdded)
+eq("fmtDate 输出 yyyy-MM-dd HH:mm", T.fmtDate(new Date(2026, 8, 17, 9, 5).getTime()), "2026-09-17 09:05");
+eq("fmtDate 个位月日补零", T.fmtDate(new Date(2026, 0, 3, 7, 8).getTime()), "2026-01-03 07:08");
+ok("每首乐谱都带 dateAdded", T.SCORES.every((s) => typeof s.dateAdded === "number" && s.dateAdded > 0));
+
+// ---------------- 15. 导入落库 ----------------
+// 导入原先只 toast、不落库；现在必须真正写进 SCORES，并带上可分享的 filePath
+const beforeCount = T.SCORES.length;
+const beforeTopId = T.SCORES[0].id;
+T.importScore(false, 1);
+eq("导入后乐谱数 +1", T.SCORES.length, beforeCount + 1);
+const imported = T.SCORES[0];
+ok("新导入的乐谱置顶", imported.id > beforeTopId);
+ok("新乐谱分配了全新 id", !T.SCORES.slice(1).some((s) => s.id === imported.id));
+ok("新乐谱带 filePath（分享/打开 PDF 可用）", typeof imported.filePath === "string" && imported.filePath.length > 0);
+ok("新乐谱登记了添加时间", imported.dateAdded > 0);
+ok("新乐谱 thumbSeed 可参与缩略图绘制的取值范围", Number.isInteger(imported.thumbSeed));
+eq("导入来源标记为本地导入", imported.source, "本地导入");
+eq("导入后可被可见列表检索到（无筛选时）", T.visibleScores().length, T.SCORES.length);
+
+const beforeAlbum = T.SCORES.length;
+T.importScore(true, 6);
+eq("相册导入同样落库", T.SCORES.length, beforeAlbum + 1);
+eq("相册导入来源标记正确", T.SCORES[0].source, "相册导入");
+eq("相册导入页数传入生效", T.SCORES[0].pages, 6);
+ok("导入不会破坏谱单归属反查", T.SCORES.every((s) => T.setsOfScore(s).every((set) => T.setMembers(set).includes(s))));
 
 // ---------------- 汇总 ----------------
 console.log(`\n通过 ${pass} 项，失败 ${fails.length} 项`);

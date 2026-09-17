@@ -28,12 +28,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.scoreapp.domain.formatDate
+import com.example.scoreapp.domain.setMembers
+import com.example.scoreapp.domain.setsOfScore
 import com.example.scoreapp.model.Score
 import com.example.scoreapp.ui.ScoreAppState
 import com.example.scoreapp.ui.components.AppIcons
 import com.example.scoreapp.ui.components.HairlineDivider
 import com.example.scoreapp.ui.components.IconBtn
 import com.example.scoreapp.ui.components.ScoreThumb
+import com.example.scoreapp.ui.components.SectionHead
 import com.example.scoreapp.ui.theme.Tokens
 
 /**
@@ -166,12 +170,16 @@ fun DetailScreen(
                     KV("难度", score.level)
                     KV("来源", score.source)
                     KV("页数", if (score.pages > 0) "${score.pages} 页" else "—")
+                    KV("添加时间", formatDate(score.dateAdded))
                 }
             }
         }
 
         item { SectionHead("分类归属") }
         item {
+            // 真实归属：这份乐谱属于哪些谱单。原先这里渲染的是作曲家/曲目类型/乐器，
+            // 与「元数据」面板前 3 行完全重复，没有回答「归属」这个问题。
+            val sets = setsOfScore(score, state.sets, state.allScores)
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -180,10 +188,20 @@ fun DetailScreen(
                 color = Tokens.Surface,
                 shadowElevation = 1.dp,
             ) {
-                Column(Modifier.padding(horizontal = 14.dp, vertical = 2.dp)) {
-                    KV("作曲家", score.composer)
-                    KV("曲目类型", score.type)
-                    KV("乐器", score.instrument)
+                if (sets.isEmpty()) {
+                    Column(Modifier.padding(horizontal = 14.dp, vertical = 2.dp)) {
+                        KV("谱单", "尚未加入任何谱单")
+                    }
+                } else {
+                    Column(Modifier.padding(horizontal = 14.dp, vertical = 2.dp)) {
+                        sets.forEach { set ->
+                            SetRow(
+                                name = set.name,
+                                count = setMembers(set, state.allScores).size,
+                                onClick = { state.openSet(set) },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -202,15 +220,43 @@ internal fun metaLine(score: Score): String =
         .filter { it.isNotBlank() }
         .joinToString(" · ")
 
+/**
+ * 「分类归属」里的一行谱单。整行可点，点击后打开该谱单的详情。
+ * 复用与「更多」弹层一致的视觉语言（图标 + 标签 + 数值 + 箭头）。
+ */
 @Composable
-private fun SectionHead(title: String) {
-    Text(
-        text = title,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.ExtraBold,
-        color = Tokens.Text2,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 8.dp),
-    )
+private fun SetRow(name: String, count: Int, onClick: () -> Unit) {
+    Column {
+        HairlineDivider(Modifier.padding(start = 46.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(horizontal = 14.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(Modifier.size(22.dp), contentAlignment = Alignment.Center) {
+                Icon(AppIcons.Layers, contentDescription = null, tint = Tokens.Text2, modifier = Modifier.size(17.dp))
+            }
+            Text(
+                text = name,
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Tokens.Text1,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Text("$count 首", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Tokens.Text2)
+            Icon(
+                imageVector = AppIcons.ChevronRight,
+                contentDescription = null,
+                tint = Tokens.Text3,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+    }
 }
 
 @Composable
@@ -279,37 +325,5 @@ internal fun ActionRow(
     }
 }
 
-/** 时间戳格式化为 `yyyy-MM-dd HH:mm`。commonMain 无法用 java.time，故手工拼装 */
-internal fun formatDate(timestamp: Long): String {
-    if (timestamp <= 0L) return "—"
-    val totalSeconds = timestamp / 1000
-    val days = totalSeconds / 86400
-    val secondsOfDay = totalSeconds % 86400
-    val (year, month, day) = civilFromDays(days)
-    val hour = secondsOfDay / 3600
-    val minute = (secondsOfDay % 3600) / 60
-    return buildString {
-        append(year.toString().padStart(4, '0')); append('-')
-        append(month.toString().padStart(2, '0')); append('-')
-        append(day.toString().padStart(2, '0')); append(' ')
-        append(hour.toString().padStart(2, '0')); append(':')
-        append(minute.toString().padStart(2, '0'))
-    }
-}
+/** 时间戳格式化已下沉到 domain（`formatDate`），此处仅保留引用以免破坏既有调用点。 */
 
-/**
- * 由「1970-01-01 起的天数」反解公历年月日（Howard Hinnant 的 civil_from_days 算法）。
- * 纯整数运算，不依赖任何平台日期库。
- */
-private fun civilFromDays(daysSinceEpoch: Long): Triple<Int, Int, Int> {
-    val z = daysSinceEpoch + 719468
-    val era = (if (z >= 0) z else z - 146096) / 146097
-    val doe = z - era * 146097
-    val yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
-    val y = yoe + era * 400
-    val doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
-    val mp = (5 * doy + 2) / 153
-    val d = doy - (153 * mp + 2) / 5 + 1
-    val m = if (mp < 10) mp + 3 else mp - 9
-    return Triple((if (m <= 2) y + 1 else y).toInt(), m.toInt(), d.toInt())
-}

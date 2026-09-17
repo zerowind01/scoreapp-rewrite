@@ -35,10 +35,7 @@ fun SetDetailSheet(
         footer = {
             SheetPrimaryButton(
                 label = "打开谱单",
-                onClick = {
-                    state.showToast("打开谱单：${set.name}")
-                    onDismiss()
-                },
+                onClick = { state.openSetInLibrary(set) },
                 modifier = Modifier.fillMaxWidth(),
             )
         },

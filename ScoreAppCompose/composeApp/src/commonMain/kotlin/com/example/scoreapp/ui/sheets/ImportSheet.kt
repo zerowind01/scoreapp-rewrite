@@ -55,7 +55,8 @@ fun ImportSheet(state: ScoreAppState, onDismiss: () -> Unit) {
             title = "从相册选择图片",
             subtitle = "多选图片，自动合并为一份 PDF 乐谱",
             onClick = {
-                state.showToast("已生成 PDF 并加入乐谱库：相册乐谱 · 2 页")
+                // 真实落库：按页数生成一份新乐谱并写入曲库
+                state.importScore(fromAlbum = true, pageCount = 2)
                 onDismiss()
             },
         )
@@ -64,7 +65,7 @@ fun ImportSheet(state: ScoreAppState, onDismiss: () -> Unit) {
             title = "选择 PDF 文件",
             subtitle = "直接导入已有 PDF 乐谱",
             onClick = {
-                state.showToast("已导入 PDF：本地乐谱_${(100000..999999).random()}")
+                state.importScore(fromAlbum = false)
                 onDismiss()
             },
         )

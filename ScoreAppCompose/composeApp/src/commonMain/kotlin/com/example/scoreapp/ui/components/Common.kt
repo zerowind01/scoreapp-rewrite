@@ -116,6 +116,23 @@ fun HairlineDivider(modifier: Modifier = Modifier) {
 }
 
 /**
+ * 详情页 / 「我的」页共用的分节标题（如「元数据」「设置」）。
+ *
+ * 此前 MeScreen 与 DetailScreen 各写了一份逐字相同的私有实现，
+ * 改一处就得改两处、容易分叉，这里收敛为单一组件。
+ */
+@Composable
+fun SectionHead(title: String, modifier: Modifier = Modifier) {
+    Text(
+        text = title,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.ExtraBold,
+        color = Tokens.Text2,
+        modifier = modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 8.dp),
+    )
+}
+
+/**
  * 分面筛选标签。[count] 为当前约束下的命中数，
  * 命中为 0 且未选中时整体降低不透明度，提示该选项不可达。
  */
