@@ -136,6 +136,14 @@ private val BottomNavClearance = 92.dp
 /** 导台高度（dp）：内容 44 + 上下内边距各 4，比常规底栏更"薄"。 */
 private val BottomNavHeight = 52.dp
 
+/**
+ * 选中项焦点气泡的直径（dp）。
+ *
+ * 刻意略大于导台内容高度、又不超过导台总高，使气泡在玻璃上微微溢出但仍被完整包住。
+ * 必须同时给宽高——只给一边会让 [CircleShape] 渲染成椭圆。
+ */
+private val BottomNavBubbleSize = 46.dp
+
 // ---------------------------------------------------------------- 底部导航
 
 @Composable
@@ -166,17 +174,15 @@ private fun BottomNav(state: ScoreAppState, modifier: Modifier = Modifier) {
                 contentAlignment = Alignment.Center,
             ) {
                 // 选中项：白色圆形气泡浮在玻璃之上，对应参考图里那颗高亮圆底。
-                // 气泡画在 Box 的一层，而非加到可点击区域自身的背景上——
-                // 后者会被按钮的圆角裁切，出不来正圆。
+                // 必须锁定为正方形——宽高不等时 CircleShape 也只会渲染成椭圆，
+                // 所以这里用固定 52dp 见方而非 fillMaxWidth 撑满页签。
                 if (selected) {
                     Box(
                         modifier = Modifier
-                            .padding(horizontal = 3.dp)
-                            .fillMaxWidth()
-                            .fillMaxHeight()
+                            .size(BottomNavBubbleSize)
+                            .shadow(3.dp, CircleShape, clip = false)
                             .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.9f))
-                            .shadow(3.dp, CircleShape, clip = false),
+                            .background(Color.White.copy(alpha = 0.92f)),
                     )
                 }
                 Column(

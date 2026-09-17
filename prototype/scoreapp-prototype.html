@@ -270,16 +270,24 @@
   .navitem span{font-size:10px;font-weight:600;line-height:1;}
   .navitem.on{color:var(--text1);}
   /* 选中项：白色圆形气泡浮在玻璃之上，对应参考图里那颗高亮圆底。
-     用伪元素绘制，避免它被 .navitem 的层叠上下文切掉圆形边角。 */
+     必须锁定为正方形——border-radius:999px 只能把矩形的角切圆，
+     宽高不等时会渲染成椭圆，所以这里用固定 52×52 而非撑满页签宽度。
+     用伪元素绘制，避免被 .navitem 自身的层叠/圆角切掉边角。 */
   .navitem.on::before{
-    content:"";position:absolute;inset:-4px 3px;border-radius:999px;
-    background:rgba(255,255,255,.9);
+    content:"";position:absolute;top:50%;left:50%;
+    width:52px;height:52px;
+    transform:translate(-50%,-50%);
+    border-radius:50%;
+    background:rgba(255,255,255,.92);
     box-shadow:0 3px 10px rgba(17,17,19,.12);
     z-index:-1;
   }
   .navitem:active::before{
-    content:"";position:absolute;inset:-4px 3px;border-radius:999px;
-    background:rgba(255,255,255,.6);z-index:-1;
+    content:"";position:absolute;top:50%;left:50%;
+    width:52px;height:52px;
+    transform:translate(-50%,-50%);
+    border-radius:50%;
+    background:rgba(255,255,255,.62);z-index:-1;
   }
 
   /* ============ FAB ============ */
