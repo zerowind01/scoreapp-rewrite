@@ -13,13 +13,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
@@ -29,6 +32,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -123,56 +127,80 @@ fun AppRoot(state: ScoreAppState) {
 /**
  * 悬浮导台需要为内容预留的底部空间（dp）。
  *
- * 组成：导台距底 14 + 内容高度约 52 + 与内容的呼吸间距 30。
+ * 组成：导台距底 12 + 高度 52 + 与内容的呼吸间距 28。
+ * 导台压薄后所需避让空间同步收敛（原为 96）。
  * 各页面把它加到自己的 `contentPadding.bottom`，避免末条内容被玻璃导台压住。
  */
-private val BottomNavClearance = 96.dp
+private val BottomNavClearance = 92.dp
+
+/** 导台高度（dp）：内容 44 + 上下内边距各 4，比常规底栏更"薄"。 */
+private val BottomNavHeight = 52.dp
 
 // ---------------------------------------------------------------- 底部导航
 
 @Composable
 private fun BottomNav(state: ScoreAppState, modifier: Modifier = Modifier) {
-    // 悬浮玻璃导台：四周留空、圆角、半透明 + 高斯模糊，
+    // 悬浮胶囊玻璃导台：四周留空、两端半圆收口、半透明 + 高斯模糊，
     // 让底下的列表内容透出来但仍保持可读（对应原型的 backdrop-filter: blur）。
+    // 圆角取高度一半（26dp），两端才会得到真正的半圆而非"圆角矩形"。
+    val pillShape = RoundedCornerShape(BottomNavHeight / 2)
     Row(
         modifier = modifier
-            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .padding(horizontal = 14.dp, vertical = 12.dp)
             .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
+            .height(BottomNavHeight)
+            .clip(pillShape)
             .glassSurface()
-            .border(1.dp, Color.White.copy(alpha = 0.7f), RoundedCornerShape(22.dp))
-            .padding(horizontal = 6.dp, vertical = 7.dp),
+            .border(1.dp, Color.White.copy(alpha = 0.72f), pillShape)
+            .padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         RootTab.entries.forEach { tab ->
             val selected = state.activeTab == tab
-            Column(
+            Box(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(16.dp))
-                    // 选中项加一层淡内底，使玻璃导台上也有明确的位置锚点
-                    .background(if (selected) Tokens.Text1.copy(alpha = 0.06f) else Color.Transparent)
-                    .clickable { state.selectTab(tab) }
-                    .padding(vertical = 5.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(3.dp),
+                    .fillMaxHeight()
+                    .clickable { state.selectTab(tab) },
+                contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    imageVector = when (tab) {
-                        RootTab.Library -> AppIcons.Book
-                        RootTab.Composers -> AppIcons.Person
-                        RootTab.Me -> AppIcons.AccountCircle
-                    },
-                    contentDescription = tab.label,
-                    tint = if (selected) Tokens.Text1 else Tokens.TabInactive,
-                    modifier = Modifier.size(22.dp),
-                )
-                Text(
-                    text = tab.label,
-                    fontSize = 10.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (selected) Tokens.Text1 else Tokens.TabInactive,
-                )
+                // 选中项：白色圆形气泡浮在玻璃之上，对应参考图里那颗高亮圆底。
+                // 气泡画在 Box 的一层，而非加到可点击区域自身的背景上——
+                // 后者会被按钮的圆角裁切，出不来正圆。
+                if (selected) {
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 3.dp)
+                            .fillMaxWidth()
+                            .fillMaxHeight()
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.9f))
+                            .shadow(3.dp, CircleShape, clip = false),
+                    )
+                }
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Icon(
+                        imageVector = when (tab) {
+                            RootTab.Library -> AppIcons.Book
+                            RootTab.Composers -> AppIcons.Person
+                            RootTab.Me -> AppIcons.AccountCircle
+                        },
+                        contentDescription = tab.label,
+                        tint = if (selected) Tokens.Text1 else Tokens.TabInactive,
+                        modifier = Modifier.size(21.dp),
+                    )
+                    Text(
+                        text = tab.label,
+                        fontSize = 10.sp,
+                        lineHeight = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (selected) Tokens.Text1 else Tokens.TabInactive,
+                    )
+                }
             }
         }
     }
@@ -192,8 +220,9 @@ private fun Modifier.glassSurface(): Modifier = this
 private fun ImportFab(onClick: () -> Unit, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
-            // 与导台同属一套悬浮体系：右侧对齐、压在导台正上方留 12dp 间隙
-            .padding(end = 18.dp, bottom = 92.dp)
+            // 与导台同属一套悬浮体系：右侧对齐、压在导台正上方留 14dp 间隙。
+            // 导台压薄并下移后，FAB 的抬升量同步收敛（原为 92dp）。
+            .padding(end = 16.dp, bottom = 78.dp)
             .size(54.dp)
             .clip(RoundedCornerShape(19.dp))
             .background(Tokens.Accent)

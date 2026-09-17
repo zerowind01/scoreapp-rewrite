@@ -47,8 +47,9 @@
   .scroll{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;scrollbar-width:none;padding-bottom:16px;}
   .scroll::-webkit-scrollbar{display:none;}
   /* 导航改成悬浮导台后不再占据文档流，内容会滚到导台下方被遮住，
-     因此由滚动区自己预留出「导台高度 + 上下留白」的底部空间 */
-  .with-nav .scroll{padding-bottom:96px;}
+     因此由滚动区自己预留出「导台高度 + 上下留白」的底部空间。
+     导台压薄后所需避让空间同步收敛：12(距底) + 52(高) + 28(呼吸) ≈ 92 */
+  .with-nav .scroll{padding-bottom:92px;}
 
   /* ============ 顶部标题区 ============ */
   .topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 6px;gap:10px;}
@@ -237,18 +238,21 @@
   .profile .pn{font-size:19px;font-weight:700;letter-spacing:-.3px;}
   .profile .ps{font-size:12.5px;color:var(--text3);margin-top:3px;}
 
-  /* ============ 底部导航（悬浮导台） ============ */
-  /* 不再贴底通栏，而是浮在内容之上的一块圆角玻璃，四周留空 */
+  /* ============ 底部导航（胶囊悬浮导台） ============ */
+  /* 不再贴底通栏，而是浮在内容之上的一片胶囊玻璃：两端为半圆收口（弧形），四周留空。
+     行高刻意压低（内容 44px + 上下 4px），比常规底栏更"薄"，让出更多阅读区。 */
   .bottomnav{
-    position:absolute;left:16px;right:16px;bottom:14px;z-index:6;
-    display:flex;align-items:center;
-    padding:7px 6px;
-    border-radius:22px;
+    position:absolute;left:14px;right:14px;bottom:12px;z-index:6;
+    display:flex;align-items:center;gap:2px;
+    padding:4px;
+    /* 高度 54px（内容 44 + 上下 4 + 边框 1×2）⇒ 半径取 27px 恰好等于高度一半，
+       两端得到真正的半圆收口，而不是"圆角矩形" */
+    border-radius:27px;
     background:rgba(255,255,255,.62);
     /* 毛玻璃：加厚模糊 + 提饱和，让底下内容透出来但不过分干扰阅读 */
     backdrop-filter:blur(26px) saturate(180%);
     -webkit-backdrop-filter:blur(26px) saturate(180%);
-    border:1px solid rgba(255,255,255,.7);
+    border:1px solid rgba(255,255,255,.72);
     box-shadow:0 10px 30px rgba(17,17,19,.16), 0 2px 8px rgba(17,17,19,.08);
   }
   /* 不支持毛玻璃时的降级：给一层足够不透明的底，保证可读性 */
@@ -256,21 +260,32 @@
     .bottomnav{background:rgba(255,255,255,.96);}
   }
   .navitem{
-    flex:1;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:3px;
-    padding:5px 0;cursor:pointer;color:var(--tab-inactive);font-family:var(--font);
-    border-radius:16px;transition:color .16s,background .16s;
+    position:relative;z-index:1;
+    flex:1;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:2px;
+    height:44px;justify-content:center;
+    padding:0;cursor:pointer;color:var(--tab-inactive);font-family:var(--font);
+    border-radius:22px;transition:color .16s;
   }
-  .navitem svg{width:22px;height:22px;}
-  .navitem span{font-size:10.5px;font-weight:600;}
+  .navitem svg{width:21px;height:21px;}
+  .navitem span{font-size:10px;font-weight:600;line-height:1;}
   .navitem.on{color:var(--text1);}
-  /* 选中项加一层淡淡的内底，使玻璃导台上也有明确的位置锚点 */
-  .navitem.on{background:rgba(17,17,19,.06);}
-  .navitem:active{background:rgba(17,17,19,.09);}
+  /* 选中项：白色圆形气泡浮在玻璃之上，对应参考图里那颗高亮圆底。
+     用伪元素绘制，避免它被 .navitem 的层叠上下文切掉圆形边角。 */
+  .navitem.on::before{
+    content:"";position:absolute;inset:-4px 3px;border-radius:999px;
+    background:rgba(255,255,255,.9);
+    box-shadow:0 3px 10px rgba(17,17,19,.12);
+    z-index:-1;
+  }
+  .navitem:active::before{
+    content:"";position:absolute;inset:-4px 3px;border-radius:999px;
+    background:rgba(255,255,255,.6);z-index:-1;
+  }
 
   /* ============ FAB ============ */
   .fab{
-    /* 抬到导台上方：导台底部 14px + 自身约 52px 高，留出间隙避免压住「我的」页签 */
-    position:absolute;right:18px;bottom:92px;width:54px;height:54px;border-radius:19px;border:0;
+    /* 抬到导台上方：导台底部 12px + 高度 52px，再留 14px 间隙避免压住最右侧页签 */
+    position:absolute;right:16px;bottom:78px;width:54px;height:54px;border-radius:19px;border:0;
     /* 主操作保持实心强调色：导台已是半透明玻璃，FAB 再透明会失去「首要动作」的视觉权重。
        仅沿用导台的圆角与投影语言，使两者同属一套悬浮体系。 */
     background:var(--accent);color:var(--accent-fg);
