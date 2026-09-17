@@ -32,7 +32,7 @@
 prototype/scoreapp-prototype.html
 ```
 
-跑一遍业务逻辑回归测试（62 项断言）：
+跑一遍业务逻辑回归测试（68 项断言）：
 
 ```bash
 node prototype/regression-test.js
@@ -72,7 +72,7 @@ Windows 用户也可直接运行 `build.bat`（或 Git Bash 下 `./build.sh`）�
 .
 ├── prototype/                      # 交付物 1：HTML 交互原型
 │   ├── scoreapp-prototype.html     #   单文件应用（390×844 手机外壳）
-│   └── regression-test.js          #   62 项业务逻辑断言
+│   └── regression-test.js          #   68 项业务逻辑断言
 │
 └── ScoreAppCompose/                # 交付物 2：Compose Multiplatform 工程
     ├── composeApp/src/
@@ -92,7 +92,7 @@ Windows 用户也可直接运行 `build.bat`（或 Git Bash 下 `./build.sh`）�
 
 - **乐谱库**：列表 / 网格切换、搜索、按标题·作曲家·曲目类型·乐器·时期·难度·来源筛选、多维分组
 - **暂存式筛选**：弹层内的改动先暂存，确认后才落库，并给出「已筛选出 N 首乐谱」反馈
-- **详情页**：封面缩略图（程序化绘制）+ 元数据面板 + 分类归属面板 + 分享主操作
+- **详情页**：封面缩略图（程序化绘制）+ 元数据面板 + 分类归属面板（列出所属谱单）+ 分享主操作
 - **作曲家**：A–Z 索引分组、姓氏/全名双行展示、作品数徽标，可下钻到作品页
 - **我的**：谱单、管理、设置等入口
 
@@ -103,7 +103,7 @@ Windows 用户也可直接运行 `build.bat`（或 Git Bash 下 `./build.sh`）�
 | 原型 | 原生 HTML / CSS / JS，零依赖，Canvas 2D 绘制缩略图 |
 | 工程 | Kotlin 2.1.21 + Compose Multiplatform 1.8.2 |
 | 构建 | Gradle 8.10.2 + AGP 8.7.3，compileSdk / targetSdk 35，minSdk 24 |
-| 测试 | Node（原型 62 项）+ kotlin-test（工程 40 项） |
+| 测试 | Node（原型 68 项）+ kotlin-test（工程 40 项） |
 
 ---
 

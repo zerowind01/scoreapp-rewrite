@@ -318,7 +318,7 @@ ScoreAppCompose/
 不会各自漂移：
 
 ```bash
-# 原型：62 项断言（最小 DOM 桩加载原型脚本）
+# 原型：68 项断言（最小 DOM 桩加载原型脚本）
 node prototype/regression-test.js
 
 # 工程：业务层单元测试（commonTest，不依赖 Android 运行时）

@@ -220,6 +220,13 @@
   .panelrow .pval.live{color:var(--pill-live);}
   .panelrow .arrow{color:var(--text3);display:flex;}
   .panelrow .arrow svg{width:16px;height:16px;}
+  /* 可点击的面板行：带箭头就应当有可点的手感，否则是假交互 */
+  .panelrow.link{cursor:pointer;transition:background .14s;}
+  .panelrow.link:active{background:var(--surface2);}
+  /* 删除类操作的二次确认态：首次点击后整行/整钮转为实色危险态 */
+  .panelrow.armed{background:var(--danger-bg);}
+  .panelrow.armed .plabel, .panelrow.armed .pico{color:var(--danger-fg);}
+  .btn.danger.armed{background:var(--danger-fg);color:#fff;}
   .profile{display:flex;align-items:center;gap:14px;padding:6px 16px 4px;}
   .profile .avatar{width:56px;height:56px;font-size:20px;}
   .profile .pn{font-size:19px;font-weight:700;letter-spacing:-.3px;}
@@ -240,7 +247,8 @@
 
   /* ============ FAB ============ */
   .fab{
-    position:absolute;right:18px;bottom:18px;width:54px;height:54px;border-radius:19px;border:0;
+    /* 抬到导航栏上方：bottomnav 实测 78px 高，贴底放置会盖住「我的」页签并吃掉点击 */
+    position:absolute;right:18px;bottom:90px;width:54px;height:54px;border-radius:19px;border:0;
     background:var(--accent);color:var(--accent-fg);display:flex;align-items:center;justify-content:center;
     cursor:pointer;box-shadow:0 8px 20px rgba(17,17,19,.3);z-index:5;transition:transform .14s;
   }
@@ -783,9 +791,15 @@ const state = {
   sheet:null,            // filter | import | edit | sort | null
   editTarget:null,
   moreTarget:null,
+  setTarget:null,        // 当前查看的谱单
   works:null,
   editDraft:null,
   composerQuery:"",
+  aiOn:true,             // 「自动识别元数据」开关
+  confirmArmed:null,     // 已进入确认态的危险操作节点
+  confirmText:null,      // 该节点上被临时替换的文案节点
+  confirmOrigin:null,    // 替换前的原文案
+  confirmTimer:null,
   toastTimer:null
 };
 
@@ -878,6 +892,19 @@ function composerGroups(){
   return [...m.entries()].map(([full, items])=>({
     full, short: shortName(full), initial: initialOf(full), items
   })).sort((a,b)=> a.full.localeCompare(b.full, "zh"));
+}
+/** 谱单成员：谱单以 thumbSeed 引用乐谱，而非自增 id */
+function setMembers(set){
+  return set.seeds.map(seed => SCORES.find(s => s.thumbSeed === seed)).filter(Boolean);
+}
+/** 反查：这首乐谱归属于哪些谱单（用于详情页「分类归属」） */
+function setsOfScore(score){
+  if(!score) return [];
+  return SETS.filter(set => set.seeds.indexOf(score.thumbSeed) >= 0);
+}
+/** 按 id 取乐谱；取不到时返回 null，交由调用方决定如何处理 */
+function scoreById(id){
+  return SCORES.find(s => s.id === id) || null;
 }
 
 /* =====================================================================
@@ -1009,8 +1036,8 @@ function renderScoresTab(){
 function renderSetsTab(){
   return `<div class="list" style="padding-top:14px">
     ${SETS.map((set,i) => {
-      const items = set.seeds.map(id => SCORES.find(s => s.thumbSeed === id) || SCORES.find(s => s.id === id)).filter(Boolean);
-      const cnt = items.length || set.seeds.length;
+      const items = setMembers(set);
+      const cnt = items.length;
       return `<article class="setcard" data-act="openset" data-i="${i}">
         <div class="stack">
           ${items.slice(0,3).map((s,k) => {
@@ -1129,9 +1156,9 @@ function renderMain(){
     </div>
     <div class="sectionhead">设置</div>
     <div class="panel">
-      <div class="panelrow"><span class="pico">${ICON.download}</span><span class="plabel">导入与存储</span><span class="pval">本地 128 MB</span><span class="arrow">${ICON.chev}</span></div>
-      <div class="panelrow"><span class="pico">${ICON.sort}</span><span class="plabel">自动识别元数据</span><span class="pval live">已开启</span></div>
-      <div class="panelrow"><span class="pico">${ICON.broom}</span><span class="plabel">清理缓存</span><span class="pval">24 MB</span><span class="arrow">${ICON.chev}</span></div>
+      <div class="panelrow link" data-act="setting" data-v="storage"><span class="pico">${ICON.download}</span><span class="plabel">导入与存储</span><span class="pval">本地 128 MB</span><span class="arrow">${ICON.chev}</span></div>
+      <div class="panelrow link" data-act="setting" data-v="ai"><span class="pico">${ICON.sort}</span><span class="plabel">自动识别元数据</span><span class="pval ${state.aiOn?"live":""}">${state.aiOn?"已开启":"已关闭"}</span></div>
+      <div class="panelrow link" data-act="setting" data-v="cache"><span class="pico">${ICON.broom}</span><span class="plabel">清理缓存</span><span class="pval">24 MB</span><span class="arrow">${ICON.chev}</span></div>
     </div>
     <div style="height:20px"></div>`;
     $("fab").style.display = "none";
@@ -1242,13 +1269,7 @@ function openDetail(score){
     </div>
 
     <div class="sectionhead">分类归属</div>
-    <div class="panel" style="padding:0 14px">
-      <div class="kvs">
-        <div class="kv"><span class="k">作曲家</span><span class="v">${esc(s.composer)}</span></div>
-        <div class="kv"><span class="k">曲目类型</span><span class="v">${esc(s.type)}</span></div>
-        <div class="kv"><span class="k">乐器</span><span class="v">${esc(s.instrument)}</span></div>
-      </div>
-    </div>
+    ${belongHTML(s)}
     <div style="height:24px"></div>`;
   $("detailLayer").style.display = "flex";
   $("mainLayer").style.display = "none";
@@ -1261,6 +1282,30 @@ function openDetail(score){
  */
 function metaLine(s){
   return [s.type, s.instrument, s.period, s.level].filter(x => x && String(x).trim()).join(" · ");
+}
+
+/**
+ * 详情页「分类归属」面板：这首乐谱属于哪些谱单。
+ *
+ * 这里原先渲染的是「作曲家 / 曲目类型 / 乐器」三行，与「元数据」面板前 3 行
+ * 一字不差 —— 抄一遍元数据并没有回答「归属」这个问题，真正的归属是谱单。
+ */
+function belongHTML(score){
+  const sets = setsOfScore(score);
+  if(!sets.length){
+    return `<div class="panel" style="padding:0 14px"><div class="kvs">
+      <div class="kv"><span class="k">谱单</span>
+      <span class="v" style="color:var(--text3);font-weight:600">尚未加入任何谱单</span></div>
+    </div></div>`;
+  }
+  return `<div class="panel">${sets.map(set => `
+      <div class="panelrow link" data-act="openset" data-i="${SETS.indexOf(set)}"
+           title="查看谱单：${esc(set.name)}">
+        <span class="pico">${ICON.layers}</span>
+        <span class="plabel">${esc(set.name)}</span>
+        <span class="pval">${setMembers(set).length} 首</span>
+        <span class="arrow">${ICON.chev}</span>
+      </div>`).join("")}</div>`;
 }
 
 function closeDetail(){
@@ -1325,7 +1370,8 @@ function openSheet(kind, target){
     $("sheetTitle").textContent = "更多";
     $("sheet").classList.toggle("tall", false);
   }else if(kind === "set"){
-    $("sheetTitle").textContent = target.name;
+    state.setTarget = target || null;
+    $("sheetTitle").textContent = target ? target.name : "谱单";
     $("sheet").classList.toggle("tall", true);
   }
   renderSheet();
@@ -1335,8 +1381,54 @@ function openSheet(kind, target){
 
 function closeSheet(){
   state.sheet = null;
+  // 弹层关闭后不留残骸：草稿、作用对象与未完成的确认态一起清掉，
+  // 否则下一次打开编辑弹层会短暂看到上一首乐谱的内容。
+  state.editDraft = null;
+  state.editTarget = null;
+  state.moreTarget = null;
+  state.setTarget = null;
+  disarmConfirm();
   $("scrim").classList.remove("on");
   $("sheet").classList.remove("on");
+}
+
+/** 退出「二次确认」态并复原按钮文案 */
+function disarmConfirm(){
+  clearTimeout(state.confirmTimer);
+  if(state.confirmArmed){
+    state.confirmArmed.classList.remove("armed");
+    if(state.confirmText && state.confirmOrigin != null){
+      state.confirmText.textContent = state.confirmOrigin;
+    }
+  }
+  state.confirmArmed = null;
+  state.confirmText = null;
+  state.confirmOrigin = null;
+}
+
+/**
+ * 危险操作的二次确认：首次点击只把文案换成确认态，再点一次才执行。
+ *
+ * 删除不可撤销，而弹层里「删除」与「保存」并排、间距很小，误触代价太高。
+ * 3 秒无操作自动复原，避免确认态一直挂着，用户下次进来看到的是一个陌生的按钮。
+ *
+ * @param {HTMLElement} row  承载 data-act 的节点（用于加 armed 样式）
+ * @param {HTMLElement} text 显示文案的节点
+ */
+function armConfirm(row, text, armedText, onConfirm){
+  if(state.confirmArmed === row){
+    const run = onConfirm;
+    disarmConfirm();
+    run();
+    return;
+  }
+  disarmConfirm();
+  state.confirmArmed = row;
+  state.confirmText = text;
+  state.confirmOrigin = text.textContent;
+  text.textContent = armedText;
+  row.classList.add("armed");
+  state.confirmTimer = setTimeout(disarmConfirm, 3000);
 }
 
 function renderSheet(){
@@ -1453,7 +1545,8 @@ function renderSortSheet(){
 
 function renderSetSheet(){
   const set = state.setTarget;
-  const items = set.seeds.map(id => SCORES.find(s => s.thumbSeed === id) || SCORES.find(s => s.id === id)).filter(Boolean);
+  if(!set) return;
+  const items = setMembers(set);
   $("sheetBody").innerHTML = `
     <p style="font-size:12.5px;color:var(--text2);line-height:1.6;margin:0 0 12px">${esc(set.desc)}</p>
     <div class="list" style="padding:0;gap:9px">
@@ -1521,28 +1614,42 @@ document.addEventListener("click", ev => {
       state.filters = {composer:new Set(), type:new Set(), instrument:new Set()};
       renderMain(); toast("已清空筛选"); break;
 
-    case "open":
-      openDetail(SCORES.find(s => s.id === id)); break;
+    case "open": {
+      const s = scoreById(id);
+      if(s) openDetail(s);
+      break;
+    }
 
     case "closedetail":
       closeDetail(); break;
 
-    case "edit":
+    case "edit": {
+      const s = scoreById(id);
+      if(!s) break;
       ev.stopPropagation();
-      openSheet("edit", SCORES.find(s => s.id === id)); break;
+      openSheet("edit", s); break;
+    }
 
-    case "delete":
-      doDelete(SCORES.find(s => s.id === id)); break;
+    case "delete": {
+      const s = scoreById(id);
+      if(!s) break;
+      // 删除不可撤销，且与「打开乐谱 / 编辑元数据」贴在同一列，先要一次确认
+      armConfirm(el, el.querySelector(".plabel"), "确认删除，不可撤销", () => doDelete(s));
+      break;
+    }
 
     case "share":
-      doShare(SCORES.find(s => s.id === id)); break;
+      doShare(scoreById(id)); break;
 
     case "openpdf":
-      doOpenPdf(SCORES.find(s => s.id === id)); break;
+      doOpenPdf(scoreById(id)); break;
 
-    case "more":
+    case "more": {
+      const s = scoreById(id);
+      if(!s) break;
       ev.stopPropagation();
-      openSheet("more", SCORES.find(s => s.id === id)); break;
+      openSheet("more", s); break;
+    }
 
     case "opencomposer": {
       // 进入这位作曲家的作品页，而不是把筛选条件塞进乐谱库
@@ -1565,9 +1672,20 @@ document.addEventListener("click", ev => {
     }
 
     case "openset": {
-      state.setTarget = SETS[+el.dataset.i];
-      openSheet("set"); break;
+      const set = SETS[+el.dataset.i];
+      if(set) openSheet("set", set);
+      break;
     }
+
+    case "setting":
+      if(v === "storage") toast("乐谱存储目录：files/scores/ · 已占用 128 MB");
+      else if(v === "cache") toast("已清理 24 MB 缩略图缓存");
+      else if(v === "ai"){
+        state.aiOn = !state.aiOn;
+        toast(state.aiOn ? "已开启自动识别元数据" : "已关闭自动识别元数据");
+        renderMain();
+      }
+      break;
 
     case "opensetplay": {
       const set = state.setTarget;
@@ -1607,15 +1725,22 @@ document.addEventListener("click", ev => {
       break;
     }
     case "esave": {
+      const target = state.editTarget;
+      if(!target) break;
       collectEditDraft();
       const d = normalizeDraft(state.editDraft);
       if(!d.title){ toast("请填写标题"); break; }
-      Object.assign(state.editTarget, d);
+      Object.assign(target, d);
       toast("已保存修改");
-      closeSheet(); renderMain(); break;
+      closeSheet();
+      // 详情页是独立的一层视图，改完必须重绘，否则它仍显示改动前的元数据
+      if(state.detail && state.detail.id === target.id) openDetail(state.detail);
+      renderMain(); break;
     }
     case "edel": {
-      doDelete(state.editTarget); break;
+      // 与「保存」并排在同一个 footer 里，误触代价高，先要一次确认
+      armConfirm(el, el, "确认删除", () => doDelete(state.editTarget));
+      break;
     }
     case "esheetclose":
       closeSheet(); break;
@@ -1648,7 +1773,9 @@ function doDelete(score){
   const i = SCORES.indexOf(score);
   if(i >= 0) SCORES.splice(i,1);
   toast(`已删除「${score.title.slice(0,12)}${score.title.length>12?"…":""}」`);
-  closeSheet(); closeDetail(); renderMain();
+  // 只关掉正在看的那一份详情，避免删 A 时把 B 的详情页一起收起来
+  if(state.detail && state.detail.id === score.id) closeDetail();
+  closeSheet(); renderMain();
 }
 
 function doShare(score){

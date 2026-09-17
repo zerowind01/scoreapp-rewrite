@@ -87,6 +87,7 @@ const exportTail = `
   shortName, initialOf, hashStr, avatarColor,
   matchesQuery, matchesFilters, visibleScores, sortScores, groupScores,
   facetCount, pendingResultCount, facetValues, distinct, composerGroups,
+  setMembers, setsOfScore, scoreById,
   SURNAME_INITIAL, ALIAS,
   normalizeDraft, metaLine,
 };
@@ -286,6 +287,23 @@ const orphanSeeds = T.SETS.flatMap((s) => s.seeds).filter(
   (seed) => !T.SCORES.some((x) => x.thumbSeed === seed),
 );
 eq("谱单种子全部能在乐谱库中解析", orphanSeeds.length, 0);
+
+// 反查「乐谱 → 所属谱单」：详情页「分类归属」面板的数据来源
+ok("每个谱单都能解析出成员", T.SETS.every((s) => T.setMembers(s).length > 0));
+eq(
+  "谱单成员总数与种子总数一致",
+  T.SETS.reduce((n, s) => n + T.setMembers(s).length, 0),
+  T.SETS.reduce((n, s) => n + s.seeds.length, 0),
+);
+const inSet = T.SCORES.find((s) => s.thumbSeed === 37);
+eq("能反查到乐谱所属谱单", T.setsOfScore(inSet).map((s) => s.name), ["独奏会备选曲目"]);
+const orphan = T.SCORES.find((s) => !T.SETS.some((x) => x.seeds.includes(s.thumbSeed)));
+ok("存在不属于任何谱单的乐谱", !!orphan);
+eq("未入谱单的乐谱反查为空", T.setsOfScore(orphan).length, 0);
+ok(
+  "归属反查自洽：谱单成员里能找回原乐谱",
+  T.SCORES.every((s) => T.setsOfScore(s).every((set) => T.setMembers(set).includes(s))),
+);
 
 // ---------------- 12. 保存时的字段归一化 ----------------
 // 原应用在保存回调里给空字段填固定占位值，避免空串在筛选分面里裂成额外的桶
