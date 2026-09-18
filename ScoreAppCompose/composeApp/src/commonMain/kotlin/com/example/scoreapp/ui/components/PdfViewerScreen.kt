@@ -14,11 +14,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -82,7 +85,11 @@ fun PdfViewerScreen(path: String, title: String, onBack: () -> Unit) {
     Column(
         Modifier
             .fillMaxSize()
-            .background(Tokens.BgPage),
+            .background(Tokens.BgPage)
+            // 阅读器是全屏覆盖层，不在 AppRoot 那个已经避让状态栏的容器里，
+            // 因此必须自己让出状态栏高度。targetSdk 35 起系统强制 edge-to-edge，
+            // 不加这一句顶栏就会与手机状态栏重叠（真机已复现）。
+            .windowInsetsPadding(WindowInsets.statusBars),
     ) {
         ReaderBar(
             title = title,

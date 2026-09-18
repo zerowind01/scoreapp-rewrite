@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
@@ -175,22 +174,40 @@ private fun ReaderHost(state: ScoreAppState) {
 /**
  * 悬浮导台需要为内容预留的底部空间（dp）。
  *
- * 组成：导台距底 12 + 高度 52 + 与内容的呼吸间距 28。
- * 导台压薄后所需避让空间同步收敛（原为 96）。
+ * 组成：导台距底 12 + 高度 56 + 与内容的呼吸间距 28。
+ * 导台加高后所需避让空间同步放大（原为 92）。
  * 各页面把它加到自己的 `contentPadding.bottom`，避免末条内容被玻璃导台压住。
  */
-private val BottomNavClearance = 92.dp
+internal val BottomNavClearance = 96.dp
 
-/** 导台高度（dp）：内容 44 + 上下内边距各 4，比常规底栏更"薄"。 */
-private val BottomNavHeight = 54.dp
+/**
+ * 导台高度（dp）：内容 44 + 上下内边距各 6，比常规底栏更"薄"。
+ *
+ * 参数与原型逐项对齐（Jackson 按真机体验与参考图逐条定过）：
+ * 高度 56、内边距 6、圆角 28（恰为高度一半，两端才是半圆收口）、
+ * 左右距边 24、距底 12、图标 23、文字 12sp、焦点气泡 64×46。
+ */
+internal val BottomNavHeight = 56.dp
+
+/** 导台内边距。改动它会同时影响气泡定位公式，两者必须一起调 */
+private val BottomNavPadding = 6.dp
+
+/** 页签之间的间距 */
+private val BottomNavItemGap = 2.dp
+
+/** 导台距屏幕左右边缘的距离。Jackson 反馈「底层岛台在左右两侧再缩短一些」，14 → 24 */
+private val BottomNavSideMargin = 24.dp
+
+/** 导台距屏幕底部的距离 */
+private val BottomNavBottomMargin = 12.dp
 
 /**
  * 选中项焦点气泡的尺寸（dp）。
  *
- * 刻意做成"略微拉宽"的椭圆而非正圆：宽比高多 4dp，在玻璃导台上包裹感更松弛。
- * 必须同时给出宽高——只给一边会让 [CircleShape] 渲染成正圆或椭圆，无法控形。
+ * 刻意做成"拉宽的胶囊"而非正圆：宽比高多 18dp，在玻璃导台上包裹感更松弛。
+ * 必须同时给出宽高——只给一边会让形状失控。
  */
-private val BottomNavBubbleWidth = 50.dp
+private val BottomNavBubbleWidth = 64.dp
 private val BottomNavBubbleHeight = 46.dp
 
 // ---------------------------------------------------------------- 底部导航
@@ -199,20 +216,25 @@ private val BottomNavBubbleHeight = 46.dp
 private fun BottomNav(state: ScoreAppState, modifier: Modifier = Modifier) {
     // 悬浮胶囊玻璃导台：四周留空、两端半圆收口、半透明 + 高斯模糊，
     // 让底下的列表内容透出来但仍保持可读（对应原型的 backdrop-filter: blur）。
-    // 圆角取高度一半（26dp），两端才会得到真正的半圆而非"圆角矩形"。
+    // 圆角取高度一半（28dp），两端才会得到真正的半圆而非"圆角矩形"。
     val pillShape = RoundedCornerShape(BottomNavHeight / 2)
     val tabs = RootTab.entries
     val index = tabs.indexOf(state.activeTab).coerceAtLeast(0)
 
     BoxWithConstraints(
         modifier = modifier
-            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .padding(
+                start = BottomNavSideMargin,
+                end = BottomNavSideMargin,
+                top = BottomNavBottomMargin,
+                bottom = BottomNavBottomMargin,
+            )
             .fillMaxWidth()
             .height(BottomNavHeight)
             .clip(pillShape)
             .glassSurface()
             .border(1.dp, Color.White.copy(alpha = 0.72f), pillShape)
-            .padding(horizontal = 4.dp),
+            .padding(horizontal = BottomNavPadding),
     ) {
         // 页签是等宽排列的，所以「第 index 个的中心」可以直接从可用宽算出来：
         //   单签宽 = (可用宽 - 间距×(n-1)) / n
@@ -233,15 +255,17 @@ private fun BottomNav(state: ScoreAppState, modifier: Modifier = Modifier) {
                 .align(Alignment.CenterStart)
                 .offset(x = bubbleX)
                 .size(width = BottomNavBubbleWidth, height = BottomNavBubbleHeight)
-                .shadow(3.dp, CircleShape, clip = false)
-                .clip(CircleShape)
+                // 用胶囊形而不是 CircleShape：气泡是 64×46 的拉宽椭圆，
+                // CircleShape 会按短边画成正圆，宽度就白给了。
+                .shadow(3.dp, RoundedCornerShape(BottomNavBubbleHeight / 2), clip = false)
+                .clip(RoundedCornerShape(BottomNavBubbleHeight / 2))
                 .background(Color.White.copy(alpha = 0.92f)),
         )
 
         Row(
             modifier = Modifier.fillMaxSize(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            horizontalArrangement = Arrangement.spacedBy(BottomNavItemGap),
         ) {
             tabs.forEach { tab ->
                 val selected = state.activeTab == tab
@@ -259,7 +283,7 @@ private fun BottomNav(state: ScoreAppState, modifier: Modifier = Modifier) {
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
                         Icon(
                             imageVector = when (tab) {
@@ -269,12 +293,12 @@ private fun BottomNav(state: ScoreAppState, modifier: Modifier = Modifier) {
                             },
                             contentDescription = tab.label,
                             tint = if (selected) Tokens.Text1 else Tokens.TabInactive,
-                            modifier = Modifier.size(21.dp),
+                            modifier = Modifier.size(23.dp),
                         )
                         Text(
                             text = tab.label,
-                            fontSize = 10.sp,
-                            lineHeight = 10.sp,
+                            fontSize = 12.sp,
+                            lineHeight = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = if (selected) Tokens.Text1 else Tokens.TabInactive,
                         )
@@ -301,9 +325,9 @@ private fun Modifier.glassSurface(): Modifier = this
 private fun ImportFab(onClick: () -> Unit, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
-            // 与导台同属一套悬浮体系：右侧对齐、压在导台正上方留 14dp 间隙。
-            // 导台压薄并下移后，FAB 的抬升量同步收敛（原为 92dp）。
-            .padding(end = 16.dp, bottom = 78.dp)
+            // 与导台同属一套悬浮体系：右边界与导台对齐（同为 24dp），
+            // 压在导台正上方留 12dp 间隙。导台加高后抬升量同步跟到 80dp。
+            .padding(end = BottomNavSideMargin, bottom = 80.dp)
             .size(54.dp)
             .clip(RoundedCornerShape(19.dp))
             .background(Tokens.Accent)

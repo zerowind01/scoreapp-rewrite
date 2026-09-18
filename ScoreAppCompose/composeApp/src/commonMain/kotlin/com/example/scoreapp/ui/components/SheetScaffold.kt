@@ -8,12 +8,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -61,6 +64,8 @@ fun SheetScaffold(
         dragHandle = {
             Box(
                 Modifier
+                    // 手柄在标题之上，同样要避让状态栏，否则展开后它会落进状态栏里
+                    .windowInsetsPadding(WindowInsets.statusBars)
                     .padding(top = 10.dp, bottom = 2.dp)
                     .size(width = 38.dp, height = 4.dp)
                     .clip(RoundedCornerShape(99.dp))
@@ -68,10 +73,15 @@ fun SheetScaffold(
             )
         },
     ) {
-        // 标题栏
+        // 标题栏。
+        // 顶部让出状态栏：ModalBottomSheet 展开后可以一直顶到屏幕最上沿，
+        // 而它自己不会避让系统状态栏，于是「编辑乐谱」这类长表单弹层
+        // 的标题会被状态栏压住（真机已复现）。
+        // 用 windowInsetsPadding 而不是写死 paddingTop：小屏/无状态栏设备自动归零。
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.statusBars)
                 .padding(start = 18.dp, end = 18.dp, top = 6.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,

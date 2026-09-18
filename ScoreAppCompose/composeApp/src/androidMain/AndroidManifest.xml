@@ -2,11 +2,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
-        相册图片读取。Android 13 起用 READ_MEDIA_IMAGES；
-        12 及以下只能申请 READ_EXTERNAL_STORAGE，故用 maxSdkVersion 限定其生效范围，
-        避免在新系统上申请一个已被忽略的权限。
+        相册读取走系统的照片选择器（Photo Picker），**主路径不需要任何权限**：
+        选择器由系统进程托管，只对用户勾选的那几张授予临时读权限。
+
+        这里仍然声明权限，是为了兼容两条边缘路径：
+          · Android 14+ 的「部分照片访问」——用 READ_MEDIA_VISUAL_USER_SELECTED 表达
+            「用户只授权了选中的几张」，不声明的话系统会把它折叠成完全拒绝；
+          · 部分定制 ROM 上 Photo Picker 缺失、回退到旧相册界面的情况。
+        申请入口已在 MainActivity 中整体删除，因此这些声明不会触发权限弹窗。
     -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />

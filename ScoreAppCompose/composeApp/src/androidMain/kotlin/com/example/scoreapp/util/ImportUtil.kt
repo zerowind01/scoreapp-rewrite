@@ -65,13 +65,17 @@ internal object ImportUtil {
         try {
             var written = 0
             var skipped = 0
+            // 第一张解码失败的原因，用于全灭时给出一句可行动的提示
+            var firstFailureCause: String? = null
 
             uris.forEach { raw ->
                 val uri = Uri.parse(raw)
-                val bitmap = decodeSampled(context, uri, MAX_EDGE)
+                val outcome = decodeSampled(context, uri, MAX_EDGE)
+                val bitmap = outcome.bitmap
                 if (bitmap == null) {
                     skipped++
-                    Log.w(TAG, "图片解码失败，跳过：$uri")
+                    if (firstFailureCause == null) firstFailureCause = outcome.reason
+                    Log.w(TAG, "图片解码失败，跳过：$uri（${outcome.reason}）")
                     return@forEach
                 }
                 try {
@@ -103,7 +107,12 @@ internal object ImportUtil {
 
             if (written == 0) {
                 outFile.delete()
-                return ImportOutcome(null, 0, uris.size, "所选 ${uris.size} 张图片都无法读取")
+                // 全灭是最难排查的一类：把第一张的原因带进返回文案。
+                // 真机上报「所有照片都读不出」时，用户看到的这句话
+                // 加上 logcat 里 decodeSampled 打的明细，足以区分
+                // 「权限/流打不开」「格式不支持」「尺寸读不出」三种情况。
+                val hint = firstFailureCause?.let { "（$it）" } ?: ""
+                return ImportOutcome(null, 0, uris.size, "所选 ${uris.size} 张图片都无法读取$hint")
             }
 
             FileOutputStream(outFile).use { document.writeTo(it) }
@@ -191,6 +200,14 @@ internal object ImportUtil {
     }
 
     /**
+     * 解码结果：失败时带上原因。
+     *
+     * 单看 `null` 无法区分「流打不开」与「格式不支持」，
+     * 而这两种情况的排查方向完全不同，因此把原因一并带出来。
+     */
+    private class DecodeOutcome(val bitmap: Bitmap?, val reason: String?)
+
+    /**
      * 按最大边采样解码。
      *
      * 外层三轮降低目标分辨率（extra 取 1 / 2 / 4）：超大图在第一次尝试就可能 OOM，
@@ -198,17 +215,31 @@ internal object ImportUtil {
      * 前端 `BitmapFactory` 全流程失败时，用 `ImageDecoder`（API 28+）兜底——
      * 它对 HEIC / AVIF 等新格式支持更好，是原应用为相册图片准备的第二道网。
      */
-    private fun decodeSampled(context: Context, uri: Uri, maxEdge: Int): Bitmap? {
+    private fun decodeSampled(context: Context, uri: Uri, maxEdge: Int): DecodeOutcome {
+        // 记下最后一次失败原因。真机上报「所有照片都读不出」时，
+        // 没有这一句就只能靠猜——是打不开流、还是解不出尺寸、还是配置不支持？
+        var lastError: String? = null
         for (extra in intArrayOf(1, 2, 4)) {
             try {
                 val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                context.contentResolver.openInputStream(uri)?.use {
-                    BitmapFactory.decodeStream(it, null, options)
-                } ?: return null
+                val boundsStream = try {
+                    context.contentResolver.openInputStream(uri)
+                } catch (e: Exception) {
+                    // 权限被拒 / provider 不可达都会在这里
+                    lastError = "打不开输入流：${e::class.simpleName}"
+                    Log.w(TAG, "$lastError ${e.message} uri=$uri")
+                    null
+                }
+                val realStream = boundsStream ?: return DecodeOutcome(null, lastError)
+                realStream.use { BitmapFactory.decodeStream(it, null, options) }
 
                 val width = options.outWidth
                 val height = options.outHeight
-                if (width <= 0 || height <= 0) continue
+                if (width <= 0 || height <= 0) {
+                    lastError = "读不出图片尺寸"
+                    Log.w(TAG, "$lastError（outWidth=$width outHeight=$height）uri=$uri")
+                    continue
+                }
 
                 options.inSampleSize = computeSample(width, height, maxEdge) * extra
                 options.inJustDecodeBounds = false
@@ -217,14 +248,20 @@ internal object ImportUtil {
                 val decoded = context.contentResolver.openInputStream(uri)?.use {
                     BitmapFactory.decodeStream(it, null, options)
                 }
-                if (decoded != null) return decoded
+                if (decoded != null) return DecodeOutcome(decoded, null)
+                lastError = "解码返回空（${width}×${height}, sample=${options.inSampleSize}）"
+                Log.w(TAG, "$lastError uri=$uri")
             } catch (_: OutOfMemoryError) {
+                lastError = "内存不足，已降级重试仍失败"
                 Log.w(TAG, "解码 OOM，降低分辨率重试 extra=$extra")
             } catch (t: Throwable) {
+                lastError = "${t::class.simpleName}: ${t.message}"
                 Log.w(TAG, "BitmapFactory 解码失败：${t.message}")
             }
         }
-        return fallbackImageDecoder(context, uri, maxEdge)
+        val fallback = fallbackImageDecoder(context, uri, maxEdge)
+        if (fallback == null) Log.e(TAG, "该图片彻底无法解码，最后一次原因：$lastError uri=$uri")
+        return DecodeOutcome(fallback, if (fallback == null) lastError else null)
     }
 
     private fun fallbackImageDecoder(context: Context, uri: Uri, maxEdge: Int): Bitmap? {

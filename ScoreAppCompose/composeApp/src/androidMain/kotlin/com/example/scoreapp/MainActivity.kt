@@ -1,13 +1,13 @@
 package com.example.scoreapp
 
-import android.Manifest
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import com.example.scoreapp.ui.AppRoot
@@ -16,6 +16,15 @@ import com.example.scoreapp.ui.ScoreAppState
 import com.example.scoreapp.ui.SheetKind
 import com.example.scoreapp.util.createFileBridge
 import com.example.scoreapp.util.installFileBridge
+
+/**
+ * 一次最多能选几张相册图片。
+ *
+ * 上限交给系统选择器自己限制（超出时用户根本选不了第 N+1 张），
+ * 比选完再由应用报错更早、更清楚。32 张足够覆盖「一本乐谱拍完」的场景，
+ * 再多则合成 PDF 的内存与耗时都不划算（每页解码后按最长边 1400px 采样）。
+ */
+private const val MaxPickImages = 32
 
 /**
  * 唯一 Activity，承载全部 Compose 界面，同时是平台能力的注入点。
@@ -44,13 +53,24 @@ class MainActivity : ComponentActivity() {
                 state.installBundledScores()
             }
 
-            // 相册多选。用 GetMultipleContents 而不是 GetContent：一次选多张、
-            // 合成一份多页 PDF 是这条通道的主要用法。
+            // 相册多选。走系统的照片选择器（Photo Picker），**不申请任何相册权限**：
+            // 选择器由系统进程托管，只对用户勾选的那几张授予临时读权限。
+            //
+            // 这里换掉的是此前的 `GetMultipleContents` + 「先申请 READ_MEDIA_IMAGES
+            // 再拉相册」那条链。那条链在真机上表现成「所有照片都无法读取」——
+            // 权限批给了 Activity，而文件桥持有的是 applicationContext，
+            // 部分 ROM 上查询 MediaProvider 会被拒，异常被解码逻辑吞成「读取失败」。
+            // Photo Picker 从设计上就没有这一环，属根治而非绕开。
+            //
+            // PickMultipleVisualMedia 在不支持该特性的旧系统上会自动回退到
+            // ACTION_OPEN_DOCUMENT（仍然免权限），因此不需要写版本分支。
             val imagePicker = rememberLauncherForActivityResult(
-                ActivityResultContracts.GetMultipleContents(),
+                ActivityResultContracts.PickMultipleVisualMedia(MaxPickImages),
             ) { uris ->
                 state.consumePick()
-                state.importFromImages(uris.map { it.toString() })
+                if (uris.isNotEmpty()) {
+                    state.importFromImages(uris.map { it.toString() })
+                }
             }
 
             // PDF 单选
@@ -63,40 +83,13 @@ class MainActivity : ComponentActivity() {
                 if (uri != null) state.importFromPdf(uri.toString())
             }
 
-            val imagePermission = rememberLauncherForActivityResult(
-                ActivityResultContracts.RequestPermission(),
-            ) { granted ->
-                state.consumePick()
-                if (granted) {
-                    imagePicker.launch("image/*")
-                } else {
-                    state.showToast("没有读取相册的权限，无法选择图片")
-                }
-            }
-
-            // 拉起选择器前先确认权限。Android 13 起相册归 READ_MEDIA_IMAGES，
-            // 12 及以下仍是 READ_EXTERNAL_STORAGE。两个都不申请也没关系——
-            // 系统选择器本身不需要权限，这里只是为了在部分定制 ROM 上更稳妥。
-            fun requestImages() {
-                val permission = if (Build.VERSION.SDK_INT >= 33) {
-                    Manifest.permission.READ_MEDIA_IMAGES
-                } else {
-                    Manifest.permission.READ_EXTERNAL_STORAGE
-                }
-                val alreadyGranted = checkSelfPermission(permission) ==
-                    android.content.pm.PackageManager.PERMISSION_GRANTED
-                if (alreadyGranted) {
-                    state.consumePick()
-                    imagePicker.launch("image/*")
-                } else {
-                    imagePermission.launch(permission)
-                }
-            }
-
             // 导入意图一旦挂上就立刻拉起选择器，拉完即复位
             LaunchedEffect(state.pendingPick) {
                 when (state.pendingPick) {
-                    PickKind.Images -> requestImages()
+                    PickKind.Images -> {
+                        state.consumePick()
+                        imagePicker.launch(PickVisualMediaRequest(ImageOnly))
+                    }
                     PickKind.Pdf -> pdfPicker.launch("application/pdf")
                     PickKind.None -> Unit
                 }
@@ -119,8 +112,8 @@ class MainActivity : ComponentActivity() {
 
             AppRoot(
                 state = state,
-                // 这两个回调保留给非 Android 平台或测试；Android 上的拉起逻辑
-                // 走上面的 LaunchedEffect，因为需要先做权限判断。
+                // 这两个回调保留给非 Android 平台或测试；Android 上真正的拉起逻辑
+                // 走上面的 LaunchedEffect（需要 launcher 实例，只能在 Composable 里取）。
                 onPickImages = {},
                 onPickPdf = {},
             )

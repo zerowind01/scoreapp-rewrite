@@ -149,7 +149,8 @@ private fun CardBody(
  */
 @Composable
 private fun CardActions(onView: () -> Unit, onShare: () -> Unit, onEdit: () -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+    // 间距 4dp 而非 2dp：命中区放大到 34dp 后，2dp 太近，手指容易误触相邻按钮
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         CardAction(AppIcons.OpenInNew, "查看乐谱", onView)
         CardAction(AppIcons.Share, "分享", onShare)
         CardAction(AppIcons.Edit, "编辑", onEdit)
@@ -160,7 +161,10 @@ private fun CardActions(onView: () -> Unit, onShare: () -> Unit, onEdit: () -> U
 private fun CardAction(icon: ImageVector, label: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .size(25.dp)
+            // 34dp 命中区 + 18dp 图标（原为 25/14）。
+            // 真机反馈「快捷入口太小」，这两个值一起放大才有效果：
+            // 只放大图标会显得挤，只放大命中区则视觉上毫无变化。
+            .size(34.dp)
             .clip(CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -168,8 +172,9 @@ private fun CardAction(icon: ImageVector, label: String, onClick: () -> Unit) {
         Icon(
             imageVector = icon,
             contentDescription = label,
-            tint = Tokens.Text3,
-            modifier = Modifier.size(14.dp),
+            // 颜色由 Text3 提到 Text2：放大后仍用最浅的一档会显得发灰、像不可用
+            tint = Tokens.Text2,
+            modifier = Modifier.size(18.dp),
         )
     }
 }

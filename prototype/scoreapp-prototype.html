@@ -3711,6 +3711,18 @@ const APP_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 1
     const b = $("demobar").querySelector(`[data-demo="${m[1]}"]`);
     if(b) b.classList.add("on");
     setTimeout(()=> runDemo(m[1]), 60);
+    // `#ac=1`：编辑页直接展开作曲家候选列表，便于截图评审自动补全
+    // （评审辅助，不影响产品行为；回车采纳首条的分支由测试覆盖）
+    if(/(?:^|[#&])ac=1/.test(location.hash || "")){
+      setTimeout(()=>{
+        if(state.sheet === "edit"){
+          state.acField = "composer";
+          state.acQuery = "贝";
+          state.acIndex = 0;
+          renderSheet();
+        }
+      }, 240);
+    }
     // `#sel=1`：给照片选择器预勾几格，便于截图评审选中态（评审辅助，不影响产品行为）
     if(/(?:^|[#&])sel=1/.test(location.hash || "")){
       setTimeout(()=>{
