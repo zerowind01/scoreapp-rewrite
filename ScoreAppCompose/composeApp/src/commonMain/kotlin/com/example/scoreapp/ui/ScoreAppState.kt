@@ -8,6 +8,7 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.example.scoreapp.data.SampleLibrary
 import com.example.scoreapp.domain.ComposerNames
 import com.example.scoreapp.domain.LibraryQuery
+import com.example.scoreapp.domain.formatBytes
 import com.example.scoreapp.model.FilterDim
 import com.example.scoreapp.model.FilterState
 import com.example.scoreapp.model.RootTab
@@ -16,6 +17,7 @@ import com.example.scoreapp.model.ScoreSet
 import com.example.scoreapp.model.Screen
 import com.example.scoreapp.model.SortMode
 import com.example.scoreapp.util.FileBridge
+import com.example.scoreapp.util.StorageUsage
 import com.example.scoreapp.util.nowMillis
 import com.example.scoreapp.util.toShareInfo
 
@@ -207,6 +209,19 @@ class ScoreAppState {
 
     /** 阅读器覆盖视图的请求；为 null 表示没打开 */
     var reader by mutableStateOf<ReaderRequest?>(null)
+        private set
+
+    /**
+     * 乐谱存储目录的真实占用；null 表示还没统计过。
+     *
+     * 由「我的」页进入时刷新一次（见 [refreshStorage]），标签与点击提示同口径。
+     * 原应用这里写死「本地 128 MB」永不变化，属于它自己的瑕疵（第 4 处）。
+     */
+    var storageUsage by mutableStateOf<StorageUsage?>(null)
+        private set
+
+    /** 封面缓存当前占用（字节）。清空后由 [clearCache] 同步归零 */
+    var cacheBytes by mutableStateOf(0L)
         private set
 
     // ---------- 派生数据 ----------
@@ -597,14 +612,39 @@ class ScoreAppState {
     fun clearToast() { toast = null }
 
     // ---------- 「我的」页设置项 ----------
-    /** 存储占用提示。曲库规模实时推导，避免写死一个不会变的数字。 */
-    fun showStorageInfo() {
-        showToast("乐谱存储目录：files/scores/ · 已收录 ${allScores.size} 份乐谱")
+
+    /**
+     * 现算存储占用与缓存量。进「我的」页时调一次；清理后也要调，
+     * 让标签与提示永远说同一个数。
+     */
+    fun refreshStorage() {
+        val b = bridge ?: return
+        storageUsage = b.storageUsage()
+        cacheBytes = b.coverCacheBytes()
     }
 
-    /** 清理缓存。原先该行只能点但没有任何反馈。 */
+    /** 存储占用提示。份数与字节数来自同一次统计，口径不会再打架 */
+    fun showStorageInfo() {
+        val u = storageUsage
+        showToast(
+            if (u == null) "乐谱存储目录：files/scores/"
+            else "乐谱存储目录：files/scores/ · ${u.files} 个文件 · ${formatBytes(u.bytes)}",
+        )
+    }
+
+    /**
+     * 清理缓存。返回值不再写死：清多少报多少，0 就说 0——
+     * 原应用报「已清理 24 MB 缩略图缓存」是写死的假数。
+     */
     fun clearCache() {
-        showToast("已清理 24 MB 缩略图缓存")
+        val b = bridge
+        if (b == null) {
+            showToast("缓存为空，无需清理")
+            return
+        }
+        val freed = b.clearCoverCache()
+        cacheBytes = 0
+        showToast(if (freed > 0) "已清理 ${formatBytes(freed)} 缩略图缓存" else "缓存为空，无需清理")
     }
 
     /** 切换「自动识别元数据」。 */

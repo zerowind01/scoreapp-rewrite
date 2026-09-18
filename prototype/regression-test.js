@@ -47,9 +47,14 @@ function makeEl(id) {
     removeEventListener() {},
     appendChild() {},
     querySelectorAll() { return []; },
-    // 原先返回 null：任何「先查元素再改样式」的代码在测试里都会炸。
-    // 返回一个一次性桩元素即可（与 getElementById 不同，这里的查询结果不需要跨调用稳定）。
-    querySelector() { return makeEl("q"); },
+    // 按选择器记忆化：真实 DOM 里同一个选择器查到的是同一个节点，
+    // 返回一次性桩会让「先写入、再回读」的断言永远读到空值
+    // （崩溃浮层把日志写进 .crashlog 后被读出来校验就会失败）。
+    _q: new Map(),
+    querySelector(sel) {
+      if (!this._q.has(sel)) this._q.set(sel, makeEl("q"));
+      return this._q.get(sel);
+    },
     focus() {},
     blur() {},
     setSelectionRange() {},
@@ -113,8 +118,22 @@ const window = {
   requestAnimationFrame() { return 0; },
   setTimeout() { return 0; },
   matchMedia() { return { matches: false, addEventListener() {} }; },
-  localStorage: { getItem() { return null; }, setItem() {} },
+  // 崩溃日志靠 localStorage 模拟「跨次运行落盘」，替身必须真的能存，
+  // 否则 writeCrashLog / clearCrash 会被原型里的 try/catch 吞成静默失效。
+  // 三个方法都要有：少了 removeItem 会让「清除」在测试里变成空操作。
+  localStorage: (() => {
+    const m = new Map();
+    return {
+      getItem: k => (m.has(k) ? m.get(k) : null),
+      setItem: (k, v) => { m.set(k, String(v)); },
+      removeItem: k => { m.delete(k); },
+      clear: () => { m.clear(); },
+    };
+  })(),
 };
+
+// 与传进原型代码里的那个 localStorage 是同一个对象，测试与原型共享同一份存储
+const localStorage = window.localStorage;
 
 const exportTail = `
 ;globalThis.__T = {
@@ -143,6 +162,12 @@ const exportTail = `
   // 阅读器顶栏文案（对译 ReaderBarText.kt）
   READER_LOADING_TEXT, READER_FAILED_TEXT, READER_EMPTY_TEXT,
   readerSubtitle, readerBadge,
+  // 「我的」页存储 / 缓存真实值
+  storageBytes, storageFileCount, cacheBytes, clearThumbCache,
+  // 崩溃日志（对译 ScoreApp.java 的 installCrashLogger / writeCrashLog / lastCrash / clearCrash）
+  CRASH_FILE, CRASH_KEY, APP_VERSION_NAME, APP_VERSION_CODE,
+  crashTimestamp, buildCrashLog, writeCrashLog, lastCrash, clearCrash,
+  showCrashOverlay, hideCrashOverlay, simulateCrash,
 };
 
 /**
@@ -171,8 +196,12 @@ function probeCoverDraw(score){
 
 new Function(
   "document", "window", "setTimeout", "clearTimeout", "requestAnimationFrame", "navigator", "location",
+  // localStorage 必须显式传进来：原型里用的是裸标识符，不是 window.localStorage。
+  // 不传的话它根本不在作用域链上，writeCrashLog 的 try/catch 会把写入失败静默吞掉，
+  // 测试表现为「写进去了却读不出来」，很难查。
+  "localStorage",
   code + exportTail,
-)(document, window, () => 0, () => {}, () => 0, { userAgent: "node" }, { href: "" });
+)(document, window, () => 0, () => {}, () => 0, { userAgent: "node" }, { href: "" }, window.localStorage);
 
 const T = globalThis.__T;
 if (!T) { console.error("无法导出内部符号，测试中止"); process.exit(1); }
@@ -922,6 +951,117 @@ T.state.filters = { composer: new Set(), type: new Set(), instrument: new Set() 
   ok("底部同步显示已选张数", picked.includes("已选 2 张"));
 
   S.picker = null;
+}
+
+// ---------------- 27. 「我的」页存储 / 缓存改为真实值（原应用瑕疵 ④） ----------------
+// 原应用把「本地 128 MB」「24 MB」写死在 ComposableSingletons$MeScreenKt 里，
+// 永不变化。这里锁住：两处必须来自真实账本，且标签与点击提示同口径。
+{
+  const total = T.storageBytes();
+  const count = T.storageFileCount();
+
+  ok("存储占用不再是写死的 128 MB", total !== 128 * 1024 * 1024);
+  ok("存储占用来自文件账本且与份数一致", count > 0 && total > 0);
+  // 随包分发的内置 PDF 一定在账本里，占用必然等于它的真实大小
+  ok("内置 PDF 计入存储占用", total >= T.BUNDLED_PDF.size);
+  ok("占用等于账本各项之和", (() => {
+    let sum = 0;
+    T.FILE_STORE.forEach(v => { sum += v || 0; });
+    return sum === total;
+  })());
+
+  // fmtBytes 三档：B / KB / MB
+  ok("小于 1KB 显示为 B", T.fmtBytes(512) === "512 B");
+  ok("小于 1MB 显示为 KB", T.fmtBytes(2048) === "2 KB");
+  ok("超过 1MB 显示为 MB 且带一位小数", /^\d+\.\d MB$/.test(T.fmtBytes(3 * 1024 * 1024)));
+  ok("0 与负数一律显示为占位符", T.fmtBytes(0) === "—" && T.fmtBytes(-5) === "—");
+
+  // 缓存：清之前先造出占用，清之后必须归零并如实报告释放量
+  T.clearThumbCache();
+  ok("无缓存时占用为 0", T.cacheBytes() === 0);
+  ok("无缓存时清理释放 0 字节", T.clearThumbCache() === 0);
+  ok("0 字节的格式化结果是占位符而非「0 B」", T.fmtBytes(0) === "—");
+
+  // 放入一张位图，占用应等于宽*4*高（ThumbCache 口径）
+  const bmp = T.newCoverBitmap(100, 50);
+  T.thumbCachePut("files/scores/probe.pdf", bmp);
+  ok("放入位图后缓存占用大于 0", T.cacheBytes() > 0);
+  ok("缓存占用按 宽*4*高 估算", T.cacheBytes() === 100 * 4 * 50);
+  const freed = T.clearThumbCache();
+  ok("清理返回实际释放量", freed === 100 * 4 * 50);
+  ok("清理后占用归零", T.cacheBytes() === 0);
+  ok("缓存被真正清空", T.THUMB_CACHE.size === 0);
+}
+
+// ---------------- 28. 崩溃日志落盘 + 崩溃提示浮层（对译 ScoreApp.java） ----------------
+// 规格逐条对译反编译产物，重点：格式六段头、读完即清（只提示一次）、转交默认处理器。
+{
+  T.clearCrash();
+  ok("初始没有崩溃日志", T.lastCrash() === null);
+  ok("空日志不弹浮层", (() => {
+    T.showCrashOverlay("");
+    return !document.getElementById("crash").classList.contains("on");
+  })());
+  ok("空白串也不弹浮层", (() => {
+    T.showCrashOverlay("   \n  ");
+    return !document.getElementById("crash").classList.contains("on");
+  })());
+  T.hideCrashOverlay();
+
+  // 日志格式：六段头 + 分隔符 + 堆栈
+  const stack = "java.lang.IllegalStateException: boom\n  at A.b(A.kt:1)";
+  const log = T.buildCrashLog(stack, "uncaught@main");
+  const lines = log.split("\n");
+  ok("日志首段是 time", lines[0].startsWith("time="));
+  ok("时间戳形如 yyyy-MM-dd HH:mm:ss", /^time=\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(lines[0]));
+  ok("第二段是 tag 且带线程名", lines[1] === "tag=uncaught@main");
+  ok("第三段是 device", lines[2].startsWith("device="));
+  ok("第四段是 os", lines[3].startsWith("os="));
+  ok("第五段是 abi", lines[4].startsWith("abi="));
+  ok("第六段是 app 版本号", lines[5].startsWith("app="));
+  ok("app 段用真实版本号而非原应用的旧值 1.2", !lines[5].includes("1.2 (3)"));
+  ok("app 段携带版本名与 versionCode", lines[5] === `app=${T.APP_VERSION_NAME} (${T.APP_VERSION_CODE})`);
+  ok("第七段是固定的分隔行", lines[6] === "--- stacktrace ---");
+  ok("堆栈原样附在分隔行之后", lines.slice(7).join("\n").startsWith(stack.split("\n")[0]));
+  ok("日志文件名固定为 crash_last.txt", T.CRASH_FILE === "crash_last.txt");
+
+  // 写入 → 读出 → 清除 的完整链路
+  T.writeCrashLog(stack, "uncaught@main");
+  const back = T.lastCrash();
+  ok("写入后可以读回", typeof back === "string" && back.includes("--- stacktrace ---"));
+  ok("读回的内容含有堆栈", back.includes("IllegalStateException: boom"));
+
+  T.clearCrash();
+  ok("清除后读不到（一次崩溃只提示一次）", T.lastCrash() === null);
+
+  // 空串写进去也要当作没有崩溃（对译 file.length() <= 0 判据）
+  localStorage.setItem(T.CRASH_KEY, "");
+  ok("空文件视为没有崩溃", T.lastCrash() === null);
+  localStorage.setItem(T.CRASH_KEY, "   ");
+  ok("纯空白视为没有崩溃", T.lastCrash() === null);
+  T.clearCrash();
+
+  // 浮层：非空才弹，且正文是真实日志
+  ok("非空日志会弹浮层", (() => {
+    T.showCrashOverlay("time=2026-09-18 01:00:00\nx");
+    return document.getElementById("crash").classList.contains("on");
+  })());
+  ok("浮层正文渲染的是真实日志", (() => {
+    T.showCrashOverlay("LINE-A\nLINE-B");
+    // 走 getElementById 拿容器再查：document.querySelector 在最小桩里恒为 null
+    const pre = document.getElementById("crash").querySelector(".crashlog");
+    return pre && pre.textContent === "LINE-A\nLINE-B";
+  })());
+  T.hideCrashOverlay();
+  ok("关闭后浮层收起", !document.getElementById("crash").classList.contains("on"));
+
+  // 演示入口走完整链路（写 → 读 → 清 → 弹），而不是直接塞文本
+  T.clearCrash();
+  T.simulateCrash();
+  ok("演示崩溃会弹出浮层", document.getElementById("crash").classList.contains("on"));
+  ok("演示走的是真实落盘链路（弹后已清除，不会重复提示）", T.lastCrash() === null);
+  T.hideCrashOverlay();
+  T.clearCrash();
 }
 
 // ---------------- 汇总 ----------------

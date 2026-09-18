@@ -4,7 +4,7 @@ import com.example.scoreapp.model.Score
 import com.example.scoreapp.model.ScoreSet
 
 /**
- * 乐谱整理的纯逻辑：日期格式化与「谱单归属」反查。
+ * 乐谱整理的纯逻辑：日期 / 容量格式化与「谱单归属」反查。
  *
  * 这些函数原先散落在 UI 层（`formatDate` 写在 `DetailScreen.kt` 里且无人调用，
  * 归属反查在详情页里靠手写重复字段凑数），既不便于复用也测不到。
@@ -52,6 +52,23 @@ internal fun civilFromDays(daysSinceEpoch: Long): Triple<Int, Int, Int> {
     val d = doy - (153 * mp + 2) / 5 + 1
     val m = if (mp < 10) mp + 3 else mp - 9
     return Triple((if (m <= 2) y + 1 else y).toInt(), m.toInt(), d.toInt())
+}
+
+/**
+ * 字节数格式化为 `N B` / `N KB` / `N.N MB` 三档。
+ *
+ * 口径与原型 `fmtBytes` 逐字一致（两边测试互相对照）：
+ * 非 &gt;0 一律「—」；不足 1KB 走 B；不足 1MB 走 KB（整数）；
+ * 再往上 MB 保留一位小数。原应用在「我的」页写死「128 MB / 24 MB」，
+ * 改为真实值后，两端的显示规则必须完全相同才不会各说各话。
+ */
+fun formatBytes(bytes: Long): String {
+    if (bytes <= 0L) return "—"
+    if (bytes < 1024L) return "$bytes B"
+    if (bytes < 1024L * 1024) return "${bytes / 1024} KB"
+    // 与 JS 的 toFixed(1) 同为四舍五入；截断会让 0.87 MB 在两端差成 0.8 / 0.9
+    val mb = kotlin.math.round(bytes / 1024.0 / 1024.0 * 10) / 10
+    return "$mb MB"
 }
 
 /**

@@ -48,6 +48,19 @@ class ScoreShareInfo(
     val filePath: String?,
 )
 
+/**
+ * 乐谱存储目录的真实占用。
+ *
+ * 「我的 → 导入与存储」原先写死「本地 128 MB」——原应用自己的瑕疵（第 4 处），
+ * 数字永不变化。这里每次现算，标签与点击提示用同一份口径。
+ */
+class StorageUsage(
+    /** `filesDir/scores/` 下所有文件字节之和 */
+    val bytes: Long,
+    /** 文件份数 */
+    val files: Int,
+)
+
 /** 把 [Score] 收窄成分享所需字段 */
 fun Score.toShareInfo(): ScoreShareInfo = ScoreShareInfo(
     title = title,
@@ -105,6 +118,21 @@ interface FileBridge {
      * 幂等：已安装的文件不重写；没有内置资源时原样返回（封面自动退化为程序化绘制）。
      */
     fun installBundledScores(scores: List<Score>): List<Score>
+
+    /** 统计乐谱存储目录的真实占用（现算，不缓存） */
+    fun storageUsage(): StorageUsage
+
+    /** 封面缓存当前占用（字节），只读不清。给「我的」页标签显示用 */
+    fun coverCacheBytes(): Long
+
+    /**
+     * 清空封面缓存，返回**实际释放**的字节数。
+     *
+     * 缓存是内存 LruCache（见 CoverRenderer），清空后下次进列表会重新渲染——
+     * 这是「清理缓存」的真实语义。返回 0 表示本来就空，调用方照实说，
+     * 不再像原应用那样报一个写死的「已清理 24 MB」。
+     */
+    fun clearCoverCache(): Long
 }
 
 /**

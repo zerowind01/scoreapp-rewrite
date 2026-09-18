@@ -20,6 +20,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.scoreapp.domain.AvatarPalette
 import com.example.scoreapp.domain.LibraryQuery
+import com.example.scoreapp.domain.formatBytes
 import com.example.scoreapp.model.FilterDim
 import com.example.scoreapp.ui.ScoreAppState
 import com.example.scoreapp.ui.components.AppIcons
@@ -50,6 +52,11 @@ fun MeScreen(state: ScoreAppState, bottomPadding: Dp) {
     val composerCount = LibraryQuery.distinctCount(state.allScores, FilterDim.Composer)
     val typeCount = LibraryQuery.distinctCount(state.allScores, FilterDim.Type)
     val instrumentCount = LibraryQuery.distinctCount(state.allScores, FilterDim.Instrument)
+
+    // 进页现算一次存储占用与缓存量；从别的页签切回来也会重算，
+    // 保证「导入了一份乐谱再回我的页」数字立刻跟上。
+    // 原应用两行写死「128 MB / 24 MB」，属于它自己的瑕疵（第 4 处）。
+    LaunchedEffect(Unit) { state.refreshStorage() }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -148,7 +155,8 @@ fun MeScreen(state: ScoreAppState, bottomPadding: Dp) {
                 ListItem(
                     icon = AppIcons.Download,
                     label = "导入与存储",
-                    value = "本地 128 MB",
+                    // 真实占用。还没统计到时显示「…」而不是假数；占位符与 fmtBytes 的「—」区分开
+                    value = state.storageUsage?.let { "本地 ${formatBytes(it.bytes)}" } ?: "…",
                     showArrow = true,
                     onClick = { state.showStorageInfo() },
                 )
@@ -162,9 +170,15 @@ fun MeScreen(state: ScoreAppState, bottomPadding: Dp) {
                 ListItem(
                     icon = AppIcons.Cleaning,
                     label = "清理缓存",
-                    value = "24 MB",
+                    // 真实缓存量。0 时显示「—」（与 formatBytes 的空值占位同口径），
+                    // 点下去要么报真实释放量、要么说缓存为空，不再报写死的 24 MB
+                    value = formatBytes(state.cacheBytes),
                     showArrow = true,
-                    onClick = { state.clearCache() },
+                    onClick = {
+                        state.clearCache()
+                        // 清完立刻重算，标签归零而不是等下次进页
+                        state.refreshStorage()
+                    },
                 )
             }
         }

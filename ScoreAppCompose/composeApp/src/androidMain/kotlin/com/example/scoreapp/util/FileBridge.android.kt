@@ -34,6 +34,24 @@ internal class AndroidFileBridge(private val context: Context) : FileBridge {
 
     override fun installBundledScores(scores: List<Score>): List<Score> =
         PdfAssets.resolveAll(scores, PdfAssets.installMissing(context))
+
+    override fun storageUsage(): StorageUsage {
+        // 与 ImportUtil 的落盘目录同源（filesDir/scores/），遍历求和
+        val dir = java.io.File(context.filesDir, "scores")
+        var bytes = 0L
+        var files = 0
+        dir.listFiles()?.forEach { f ->
+            if (f.isFile) {
+                files++
+                bytes += f.length()
+            }
+        }
+        return StorageUsage(bytes, files)
+    }
+
+    override fun coverCacheBytes(): Long = CoverRenderer.cacheBytes().toLong()
+
+    override fun clearCoverCache(): Long = CoverRenderer.evictAll().toLong()
 }
 
 /**

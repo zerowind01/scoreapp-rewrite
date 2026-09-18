@@ -486,6 +486,15 @@
     font-family:var(--font);cursor:pointer;}
   .crash .acts .a1{background:var(--surface3);color:var(--text1);}
   .crash .acts .a2{background:var(--danger-bg);color:var(--danger-fg);}
+  /* 日志正文：等宽 + 内部滚动。堆栈按行读才有意义，不能被折行或截断，
+     同时限高避免长堆栈把整个屏幕顶掉 */
+  .crash .crashlog{
+    margin:0 0 11px;padding:9px 10px;max-height:132px;overflow:auto;
+    background:var(--surface2);border-radius:9px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:10.5px;line-height:1.5;color:var(--text2);
+    white-space:pre;tab-size:2;
+  }
 
   .hint{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;font-size:11.5px;color:#6C6C73;letter-spacing:.2px;}
 
@@ -719,9 +728,10 @@
     <div class="crash" id="crash" data-page-node-id="OSELAJJhBp9k52bhyB8Vm2">
       <h5 data-page-node-id="MHEN3NxvhoDdk0fSqzA5EW">上次运行发生异常</h5>
       <p data-page-node-id="deSWZWKlDuvo2uTjwux79G">日志已保存到：Android/data/com.example.scoreapp/files/crash_last.txt</p>
+      <pre class="crashlog" id="crashlog"></pre>
       <div class="acts" data-page-node-id="bSGqYuAdJosfCMtYq776UP">
         <button class="a1" onclick="copyCrashLog()" data-page-node-id="YctpIDAsS31Uu1k40NPsH8">复制日志</button>
-        <button class="a2" onclick="document.getElementById('crash').classList.remove('on')" data-page-node-id="tTX7VWErD9M0fC8oDGwETC">关闭</button>
+        <button class="a2" onclick="hideCrashOverlay()" data-page-node-id="tTX7VWErD9M0fC8oDGwETC">关闭</button>
       </div>
     </div>
   </div>
@@ -744,6 +754,7 @@
   <button data-demo="me">我的页</button>
   <button data-demo="edit">编辑乐谱</button>
   <button data-demo="simstatus">状态栏对照（叠层）</button>
+  <button data-demo="crash">崩溃恢复</button>
 </div>
 
 <script>
@@ -1582,9 +1593,9 @@ function renderMain(){
     </div>
     <div class="sectionhead">设置</div>
     <div class="panel">
-      <div class="panelrow link" data-act="setting" data-v="storage"><span class="pico">${ICON.download}</span><span class="plabel">导入与存储</span><span class="pval">本地 128 MB</span><span class="arrow">${ICON.chev}</span></div>
+      <div class="panelrow link" data-act="setting" data-v="storage"><span class="pico">${ICON.download}</span><span class="plabel">导入与存储</span><span class="pval">本地 ${fmtBytes(storageBytes())}</span><span class="arrow">${ICON.chev}</span></div>
       <div class="panelrow link" data-act="setting" data-v="ai"><span class="pico">${ICON.sort}</span><span class="plabel">自动识别元数据</span><span class="pval ${state.aiOn?"live":""}">${state.aiOn?"已开启":"已关闭"}</span></div>
-      <div class="panelrow link" data-act="setting" data-v="cache"><span class="pico">${ICON.broom}</span><span class="plabel">清理缓存</span><span class="pval">24 MB</span><span class="arrow">${ICON.chev}</span></div>
+      <div class="panelrow link" data-act="setting" data-v="cache"><span class="pico">${ICON.broom}</span><span class="plabel">清理缓存</span><span class="pval">${fmtBytes(cacheBytes())}</span><span class="arrow">${ICON.chev}</span></div>
     </div>
     <div style="height:20px"></div>`;
     $("fab").style.display = "none";
@@ -2072,12 +2083,125 @@ function toast(msg){
   state.toastTimer = setTimeout(()=> el.classList.remove("on"), 2200);
 }
 
+/* =====================================================================
+   崩溃日志
+   ---------------------------------------------------------------------
+   规格逐条对译原应用 `ScoreApp.java`（反编译产物），不是自己发明的：
+
+     - 日志文件名固定 crash_last.txt；
+     - 格式固定六段头 + 「--- stacktrace ---」分隔 + 堆栈：
+       time / tag / device / os / abi / app；
+     - 写完**必须转交默认处理器**，不能把异常吞掉；
+     - 读取在「弹层之前」，读完立刻清除，因此只会提示一次；
+     - 空文件或不存在都当作「没有崩溃」。
+
+   差异只有两处，且都是刻意的：
+     1. 原应用 `app=1.2 (3)` 是写死的旧版本号（stale），这里取真实版本常量；
+     2. 原应用同时写 filesDir 与 externalFilesDir 两份。原型没有文件系统，
+        用 localStorage 模拟「跨次运行」这份语义，字段名保持一致便于对读。
+   ===================================================================== */
+
+const CRASH_FILE = "crash_last.txt";
+/** localStorage 里模拟落盘的键名，与 CRASH_FILE 对应 */
+const CRASH_KEY = "scoreapp.crash_last";
+/** 真实版本号。原应用此处写死成旧值，属于它自己的瑕疵 */
+const APP_VERSION_NAME = "1.7";
+const APP_VERSION_CODE = 8;
+
+/** 当前展示中的崩溃日志全文；null 表示浮层未开 */
+let crashText = null;
+
+/** 时间戳：与原应用 SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US) 同形 */
+function crashTimestamp(d){
+  const p = x => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ` +
+         `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+/**
+ * 拼一份崩溃日志。
+ *
+ * [tag] 在原应用里是 `"uncaught@" + thread.getName()`；原型没有线程名，
+ * 用 `"uncaught@main"`（Compose 侧主线程同样如此），语义一致。
+ * [stack] 由调用方给出：真实场景是 printStackTrace 的结果。
+ */
+function buildCrashLog(stack, tag){
+  const na = navigator;
+  return [
+    "time=" + crashTimestamp(new Date()),
+    "tag=" + (tag || "uncaught@main"),
+    "device=HTML Prototype",
+    "os=" + (na.platform || "web"),
+    "abi=web",
+    `app=${APP_VERSION_NAME} (${APP_VERSION_CODE})`,
+    "--- stacktrace ---",
+    stack || "(no stack)",
+  ].join("\n");
+}
+
+/** 落盘（原型用 localStorage 模拟）。返回写入的全文 */
+function writeCrashLog(stack, tag){
+  const text = buildCrashLog(stack, tag);
+  try { localStorage.setItem(CRASH_KEY, text); } catch(e){ /* 隐私模式下不可写，忽略 */ }
+  return text;
+}
+
+/** 读上次崩溃。不存在或空串一律返回 null——与原应用 `file.length() <= 0` 同判据 */
+function lastCrash(){
+  try {
+    const t = localStorage.getItem(CRASH_KEY);
+    return (t && t.trim()) ? t : null;
+  } catch(e){ return null; }
+}
+
+/** 清除。原应用是 delete 文件 */
+function clearCrash(){
+  try { localStorage.removeItem(CRASH_KEY); } catch(e){}
+}
+
+/** 弹崩溃浮层。日志非空才弹，与原应用 `!isBlank(str)` 同判据 */
+function showCrashOverlay(text){
+  if(!text || !text.trim()) return;
+  crashText = text;
+  const box = $("crash");
+  const pre = box.querySelector(".crashlog");
+  if(pre) pre.textContent = text;
+  box.classList.add("on");
+}
+
+function hideCrashOverlay(){
+  $("crash").classList.remove("on");
+  crashText = null;
+}
+
 function copyCrashLog(){
-  const txt = "uncaught@2026-09-17 01:12:44  device=Android 14  abi=arm64-v8a\n" +
-              "java.lang.IllegalStateException: PdfRenderer: file not opened\n" +
-              "  at com.example.scoreapp.ui.components.PdfDocState.open(PdfViewer.kt:88)\n";
-  if(navigator.clipboard) navigator.clipboard.writeText(txt).then(()=>toast("日志已复制")).catch(()=>toast("复制失败"));
-  else toast("日志已复制");
+  // 复制的是真实日志全文，不是写死的示例串
+  const txt = crashText || lastCrash() || "";
+  if(!txt){ toast("没有可复制的日志"); return; }
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(()=>toast("日志已复制")).catch(()=>toast("复制失败"));
+  } else {
+    toast("日志已复制");
+  }
+}
+
+/**
+ * 演示用：注入一次崩溃并马上按「下次启动」的口径弹出。
+ *
+ * 刻意走 `writeCrashLog → lastCrash → showCrashOverlay → clearCrash` 完整链路，
+ * 而不是直接给浮层塞一段文本——这样演示的就是真实流程本身。
+ */
+function simulateCrash(){
+  clearCrash();
+  writeCrashLog(
+    "java.lang.IllegalStateException: PdfRenderer: file not opened\n" +
+    "  at com.example.scoreapp.ui.components.PdfDocState.open(PdfViewer.kt:88)\n" +
+    "  at com.example.scoreapp.ui.components.PdfViewerKt.PdfViewer(PdfViewer.kt:212)\n" +
+    "  at androidx.compose.runtime.internal.ComposableLambdaImpl.invoke(ComposableLambda.jvm.kt:118)\n"
+  );
+  const t = lastCrash();
+  clearCrash();
+  showCrashOverlay(t);
 }
 
 /* =====================================================================
@@ -2236,9 +2360,15 @@ document.addEventListener("click", ev => {
     }
 
     case "setting":
-      if(v === "storage") toast("乐谱存储目录：files/scores/ · 已占用 128 MB");
-      else if(v === "cache") toast("已清理 24 MB 缩略图缓存");
-      else if(v === "ai"){
+      if(v === "storage"){
+        // 份数与占用都来自文件账本，与标签显示的是同一个口径
+        toast(`乐谱存储目录：files/scores/ · ${storageFileCount()} 个文件 · ${fmtBytes(storageBytes())}`);
+      } else if(v === "cache"){
+        // 如实报告实际释放量；0 就说 0，不再报写死的 24 MB
+        const freed = clearThumbCache();
+        toast(freed > 0 ? `已清理 ${fmtBytes(freed)} 缩略图缓存` : "缓存为空，无需清理");
+        renderMain();
+      } else if(v === "ai"){
         state.aiOn = !state.aiOn;
         toast(state.aiOn ? "已开启自动识别元数据" : "已关闭自动识别元数据");
         renderMain();
@@ -2480,6 +2610,41 @@ function fmtBytes(n){
   if(n < 1024) return n + " B";
   if(n < 1024 * 1024) return (n / 1024).toFixed(0) + " KB";
   return (n / 1024 / 1024).toFixed(1) + " MB";
+}
+
+/**
+ * 「导入与存储」的真实占用 = `files/scores/` 下所有文件字节之和。
+ *
+ * 直接遍历文件账本 FILE_STORE，而不是写死一个数——原应用这里写死成
+ * 「本地 128 MB」且永不变化，属于它自己的瑕疵（第 4 处）。
+ * 口径与 Compose 侧一致：那边是 walk `filesDir/scores/` 求和。
+ */
+function storageBytes(){
+  let sum = 0;
+  FILE_STORE.forEach(v => { sum += v || 0; });
+  return sum;
+}
+
+/** `files/scores/` 下的文件份数 */
+function storageFileCount(){
+  return FILE_STORE.size;
+}
+
+/** 当前封面缓存占用（字节）。口径同原应用的 ThumbCache：width*4*height 累加 */
+function cacheBytes(){
+  return THUMB_CACHE_BYTES;
+}
+
+/**
+ * 清理封面缓存。返回**实际释放**的字节数，供提示如实报告。
+ *
+ * 没有缓存时返回 0，调用方据此说「缓存为空」，而不是报一个假的 24 MB。
+ */
+function clearThumbCache(){
+  const freed = THUMB_CACHE_BYTES;
+  THUMB_CACHE.clear();
+  THUMB_CACHE_BYTES = 0;
+  return freed;
 }
 
 /* =====================================================================
@@ -3671,6 +3836,7 @@ function runDemo(name){
     case "detail":         if(withPdf) openDetail(withPdf); break;
     // 编辑页默认开在「月光」上：它元数据最全，最容易看出表单密度
     case "edit":           if(withPdf) openSheet("edit", withPdf); break;
+    case "crash":          simulateCrash(); break;
     // 叠一层模拟状态栏，用来对照「顶栏有没有被系统状态栏压住」
     case "simstatus":
       document.querySelector(".phone").classList.toggle("simstatus");
@@ -3697,9 +3863,14 @@ const APP_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 1
   const d = new Date();
   $("clock").textContent = `${d.getHours()}:${String(d.getMinutes()).padStart(2,"0")}`;
   renderMain();
-  // 演示崩溃恢复浮层（4 秒后自动收起）；打开阅读器或选择器时让位
-  setTimeout(()=>{ if(!state.reader && !state.picker && !state.sheet) $("crash").classList.add("on"); }, 1200);
-  setTimeout(()=>{ $("crash").classList.remove("on"); }, 9000);
+  // 崩溃恢复：与 MainActivity 同序 —— 先读日志、立刻清除、非空才弹。
+  // 清除在弹之前，所以一次崩溃只会提示一次，刷新页面不会反复弹。
+  // （原先这里是 1.2s 后无条件弹一个写死的假浮层，与真实行为无关，已去掉。）
+  const pending = lastCrash();
+  if(pending) clearCrash();
+  if(pending) setTimeout(()=>{
+    if(!state.reader && !state.picker && !state.sheet) showCrashOverlay(pending);
+  }, 900);
   // 允许用 `#demo=<场景>` 直达某个演示状态，方便截图与评审。
   // 额外支持 `#sim=1`：直接开「叠层状态栏」对照模式，
   // 这样一张邀请截图就能说明顶栏有没有被系统状态栏压住，不必现场点开关。

@@ -66,8 +66,14 @@ internal object CoverRenderer {
         cache.remove(path)
     }
 
-    fun evictAll() {
+    /** 当前缓存占用（字节），口径即 sizeOf：宽×4×高。「我的 → 清理缓存」的标签值 */
+    fun cacheBytes(): Int = cache.size()
+
+    /** 清空并返回释放的字节数。0 表示本来就空，调用方据此如实提示 */
+    fun evictAll(): Int {
+        val freed = cache.size()
         cache.evictAll()
+        return freed
     }
 
     /**

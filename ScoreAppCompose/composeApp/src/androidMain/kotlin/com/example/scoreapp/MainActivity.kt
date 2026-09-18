@@ -9,11 +9,15 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import com.example.scoreapp.ui.AppRoot
 import com.example.scoreapp.ui.PickKind
 import com.example.scoreapp.ui.ScoreAppState
 import com.example.scoreapp.ui.SheetKind
+import com.example.scoreapp.ui.components.CrashReportOverlay
 import com.example.scoreapp.util.createFileBridge
 import com.example.scoreapp.util.installFileBridge
 
@@ -40,6 +44,14 @@ class MainActivity : ComponentActivity() {
         // 文件能力需要 Context，而 ScoreAppState 住在 commonMain，拿不到。
         // 在这里把实现注入进去，commonMain 就只依赖那个不泄漏平台类型的接口。
         installFileBridge(this)
+
+        // 崩溃恢复与原应用 MainActivity 同序：setContent **之前**读上次日志并立刻清除，
+        // 保证一次崩溃只提示一次；读到什么就弹什么，之后发生的崩溃留给下次启动。
+        // （Application 装的处理器只负责落盘与转交，浮层只认这份「上次」的日志。）
+        val app = application as ScoreApp
+        val lastCrashLog = app.lastCrash()
+        app.clearCrash()
+        val crashHint = externalCrashHint()
 
         setContent {
             val state = remember { ScoreAppState() }
@@ -117,6 +129,18 @@ class MainActivity : ComponentActivity() {
                 onPickImages = {},
                 onPickPdf = {},
             )
+
+            // 崩溃浮层盖在最上层；关掉只收浮层，不影响应用内容
+            if (lastCrashLog != null) {
+                var showCrash by remember { mutableStateOf(true) }
+                if (showCrash) {
+                    CrashReportOverlay(
+                        log = lastCrashLog,
+                        storageHint = crashHint,
+                        onDismiss = { showCrash = false },
+                    )
+                }
+            }
         }
     }
 }
