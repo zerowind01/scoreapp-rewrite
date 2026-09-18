@@ -252,11 +252,13 @@
   /* ============ 底部导航（胶囊悬浮导台） ============ */
   /* 不再贴底通栏，而是浮在内容之上的一片胶囊玻璃：两端为半圆收口（弧形），四周留空。
      参数按 Jackson 给的参考图重校（原实现偏窄偏小）：
-       岛台高 56px（内容 44 + 上下 6）、左右距边 16px（原 14）、底部 12px
+       岛台高 56px（内容 44 + 上下 6）、左右距边 24px、底部 12px
        圆角取高度一半 28px，两端得到真正的半圆收口
-       页签文字 10px → 12px、图标 21px → 23px、焦点气泡 56×52 → 64×46（拉宽成胶囊） */
+       页签文字 10px → 12px、图标 21px → 23px、焦点气泡 56×52 → 64×46（拉宽成胶囊）
+     左右距边 16 → 24px：Jackson 反馈「底层岛台在左右两侧再缩短一些」，
+     岛台越短，两侧的悬浮感越强，与内容之间也越不容易贴边。 */
   .bottomnav{
-    position:absolute;left:16px;right:16px;bottom:12px;z-index:6;
+    position:absolute;left:24px;right:24px;bottom:12px;z-index:6;
     display:flex;align-items:center;gap:2px;
     padding:6px;
     border-radius:28px;
@@ -310,8 +312,10 @@
 
   /* ============ FAB ============ */
   .fab{
-    /* 抬到导台上方：导台底部 12px + 高度 56px，再留 12px 间隙避免压住最右侧页签 */
-    position:absolute;right:16px;bottom:80px;width:54px;height:54px;border-radius:19px;border:0;
+    /* 抬到导台上方：导台底部 12px + 高度 56px，再留 12px 间隙避免压住最右侧页签。
+       右边距与导台保持一致（24px）：两者同属一套悬浮体系，
+       导台两端收进来后 FAB 还挂在旧位置就会显得错位。 */
+    position:absolute;right:24px;bottom:80px;width:54px;height:54px;border-radius:19px;border:0;
     /* 主操作保持实心强调色：导台已是半透明玻璃，FAB 再透明会失去「首要动作」的视觉权重。
        仅沿用导台的圆角与投影语言，使两者同属一套悬浮体系。 */
     background:var(--accent);color:var(--accent-fg);

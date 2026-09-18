@@ -876,7 +876,10 @@ T.state.filters = { composer: new Set(), type: new Set(), instrument: new Set() 
   ok("页签文字放大到 12px", /\.navitem span\{font-size:12px/.test(css));
   ok("页签图标放大到 23px", /\.navitem svg\{width:23px;height:23px;\}/.test(css));
   ok("焦点气泡拉宽成 64×46 胶囊", /width:64px;height:46px;border-radius:23px/.test(css));
-  ok("导台左右边距放大到 16px", /left:16px;right:16px;bottom:12px/.test(css));
+  // 左右距边 16 → 24px：Jackson 反馈「底层岛台在左右两侧再缩短一些」
+  ok("导台左右边距收到 24px", /left:24px;right:24px;bottom:12px/.test(css));
+  // FAB 与导台同属一套悬浮体系，右边界必须跟着一起收，否则错位
+  ok("FAB 右边距与导台对齐", /right:24px;bottom:80px;width:54px;height:54px/.test(css));
   // 圆角必须等于高度一半（56/2=28），两端才是半圆收口而不是圆角矩形
   ok("导台内边距 +2px（高度 56）", /padding:6px;\s*\n\s*border-radius:28px/.test(css));
   ok("内容避让空间同步放大到 96px", /\.with-nav \.scroll\{padding-bottom:96px;\}/.test(css));
