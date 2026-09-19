@@ -222,13 +222,17 @@ private fun FixRowCard(entry: FixEntry, isOverwrite: Boolean, onToggle: () -> Un
                 .padding(start = 11.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
+            // fileName 行。两个子项都显式给约束：Text 用 weight(1f)（fill 默认 true，
+            // 永远拿得到确定宽度、超长自动折行），徽标固定在右侧。
+            // 之前用过 weight(1f, fill = false) 的写法，真机上有把行挤成竖条的风险，
+            // 全部换成确定性约束 —— 校对页的每一行内容都可能很长，不容任何歧义布局。
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = entry.row.fileName.ifBlank { entry.row.title.ifBlank { "（无文件名）" } },
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     color = if (changed) Tokens.Text1 else Tokens.Text3,
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier.weight(1f),
                 )
                 if (isOverwrite && changed) {
                     Box(Modifier.padding(start = 6.dp)) { OverwriteBadge() }
@@ -273,31 +277,41 @@ private fun OverwriteBadge() {
 }
 
 /**
- * 一个字段的「原值 → 新值」。
+ * 一个字段的差异展示：**上下两行**，原值在上（灰）、新值在下（黑粗体）。
+ *
+ * 为什么不画成同一行的「原值 → 新值」：第一版就是同行横排，
+ * 真机（Jackson 的 549 行真实 CSV）上直接炸了 —— label、原值、新值三个
+ * Text 并排且都没有宽度约束，长标题（Bella siccome un angelo 这种 40+ 字符）
+ * 把整行挤成几条一字一行的竖条。教训：**会换行的长文本永远不要和别的
+ * Text 同行裸排**，要么上下分行、要么给 weight。两行式还有个附带好处：
+ * 原值再长也只在自己那行折行，新值始终贴着 label 下方一眼可见。
  *
  * [next] 为 null 说明这条规则没碰这个字段，不画。
- * 覆盖时把原值用删除线画出来 —— 用户需要看到自己填的什么被换掉了。
  */
 @Composable
 private fun FixFieldDiff(label: String, next: String?, overwritten: String?, current: String) {
     if (next == null) return
     val before = overwritten ?: current
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, fontSize = 11.sp, color = Tokens.Text3, modifier = Modifier.width(38.dp))
-        if (before.isNotBlank()) {
-            Text(
-                text = before,
-                fontSize = 12.sp,
-                color = Tokens.Text3,
-            )
-            Text(" → ", fontSize = 12.sp, color = Tokens.Text3)
-        }
+    Row(Modifier.fillMaxWidth()) {
         Text(
-            text = next.ifBlank { "（清空）" },
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            color = Tokens.Text1,
+            label,
+            fontSize = 11.sp,
+            color = Tokens.Text3,
+            modifier = Modifier
+                .width(40.dp)
+                .padding(top = 2.dp),
         )
+        Column(Modifier.weight(1f)) {
+            if (before.isNotBlank()) {
+                Text(before, fontSize = 12.sp, color = Tokens.Text3)
+            }
+            Text(
+                text = next.ifBlank { "（清空）" },
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (next.isBlank()) Tokens.Text3 else Tokens.Text1,
+            )
+        }
     }
 }
 
@@ -306,6 +320,7 @@ private fun FixFieldDiff(label: String, next: String?, overwritten: String?, cur
  *
  * 调性是两列编码（keysf + keymi）合成的一个概念，不能按普通字段展示成
  * 「keysf=3」，用户看不懂。这里翻成「A 大调 / f# 小调」这种人话。
+ * 布局同样是上下两行 —— 理由见 [FixFieldDiff]。
  */
 @Composable
 private fun FixKeyDiff(p: FixProposal, row: com.example.scoreapp.domain.csvfix.FixRow) {
@@ -314,15 +329,25 @@ private fun FixKeyDiff(p: FixProposal, row: com.example.scoreapp.domain.csvfix.F
     val label = com.example.scoreapp.domain.csvfix.ScoreKey.label(sf, mi)
     val before = com.example.scoreapp.domain.csvfix.ScoreKey.label(row.keysf, row.keymi)
 
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("调性", fontSize = 11.sp, color = Tokens.Text3, modifier = Modifier.width(38.dp))
-        if (row.keysf != null) {
-            Text(before, fontSize = 12.sp, color = Tokens.Text3)
-            Text(" → ", fontSize = 12.sp, color = Tokens.Text3)
-        }
-        Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Tokens.Text1)
-        if (p.keyOverride) {
-            Box(Modifier.padding(start = 6.dp)) { OverwriteBadge() }
+    Row(Modifier.fillMaxWidth()) {
+        Text(
+            "调性",
+            fontSize = 11.sp,
+            color = Tokens.Text3,
+            modifier = Modifier
+                .width(40.dp)
+                .padding(top = 2.dp),
+        )
+        Column(Modifier.weight(1f)) {
+            if (row.keysf != null) {
+                Text(before, fontSize = 12.sp, color = Tokens.Text3)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Tokens.Text1)
+                if (p.keyOverride) {
+                    Box(Modifier.padding(start = 6.dp)) { OverwriteBadge() }
+                }
+            }
         }
     }
 }
