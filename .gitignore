@@ -27,6 +27,8 @@ jadx_*.log
 
 # ---- 本地验证产物（截图 / 临时补丁 / dex 解包目录）----
 .tmpdex/
+# 临时的命令输出转储（调试时把 PowerShell 输出倒进这个目录）
+.tmp/
 proto_*.png
 scoreapp-fix.*
 logo-preview.svg

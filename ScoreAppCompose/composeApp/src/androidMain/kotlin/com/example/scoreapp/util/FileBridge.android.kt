@@ -26,6 +26,13 @@ internal class AndroidFileBridge(private val context: Context) : FileBridge {
     override fun copyPdfToLocal(uri: String, title: String): String? =
         ImportUtil.copyPdfToLocal(context, android.net.Uri.parse(uri), title)
 
+    override fun readTextFile(uri: String): String? = CsvFileUtil.readText(context, uri)
+
+    override fun shareText(text: String, fileName: String): Boolean =
+        CsvFileUtil.shareText(context, text, fileName)
+
+    override fun copyText(text: String): Boolean = CsvFileUtil.copyText(context, text)
+
     override fun pdfPageCount(path: String): Int = ImportUtil.pdfPageCount(path)
 
     override fun deleteLocal(path: String) = ImportUtil.deleteLocal(path)

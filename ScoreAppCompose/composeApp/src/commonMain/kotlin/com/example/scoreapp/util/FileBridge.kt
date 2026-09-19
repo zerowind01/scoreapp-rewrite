@@ -98,6 +98,32 @@ interface FileBridge {
     /** 把选中的 PDF 拷进 `filesDir/scores/` 并返回绝对路径；失败返回 null */
     fun copyPdfToLocal(uri: String, title: String): String?
 
+    /**
+     * 按文本读一个 `content://` 文件（用于 forScore 的 CSV）。
+     *
+     * 不落盘：校对会话只在内存里过一遍，出口是「导出成新文件」，
+     * 中间没必要在设备上多留一份副本。
+     * 读不到（不是文本、权限不足、文件不存在）一律返回 null。
+     */
+    fun readTextFile(uri: String): String?
+
+    /**
+     * 把文本交给系统「保存/分享」出去（导出校对后的 CSV）。
+     *
+     * 走 `ACTION_CREATE_DOCUMENT` 的语义在桥里不好做（它需要一个 Activity 回调），
+     * 所以这里用分享面板：与 [share] 同一条路，只是内容是文本附件。
+     * 用户可以从分享面板里选「保存到文件」落到任意位置。
+     */
+    fun shareText(text: String, fileName: String): Boolean
+
+    /**
+     * 把文本放进系统剪贴板。
+     *
+     * 「AI 手动粘贴」那条路的第一步：用户要先拿到提示词与数据，
+     * 才能去网页聊天窗里提问。返回 false 表示剪贴板不可用（极少见）。
+     */
+    fun copyText(text: String): Boolean
+
     /** 探测 PDF 页数。`content://` 或无法解析一律返回 0 */
     fun pdfPageCount(path: String): Int
 

@@ -33,6 +33,7 @@ import com.example.scoreapp.domain.AvatarPalette
 import com.example.scoreapp.domain.LibraryQuery
 import com.example.scoreapp.domain.formatBytes
 import com.example.scoreapp.model.FilterDim
+import com.example.scoreapp.ui.PickKind
 import com.example.scoreapp.ui.ScoreAppState
 import com.example.scoreapp.ui.components.AppIcons
 import com.example.scoreapp.ui.components.HairlineDivider
@@ -145,6 +146,27 @@ fun MeScreen(state: ScoreAppState, bottomPadding: Dp) {
                     icon = AppIcons.MusicNote,
                     label = "乐器",
                     value = "$instrumentCount 种",
+                )
+            }
+        }
+
+        item { SectionHead("标签工具") }
+        item {
+            ListPanel {
+                ListItem(
+                    icon = AppIcons.FileDoc,
+                    label = "校对 forScore 标签",
+                    // 副标题写清来源与出口，用户不用点进去猜这是干什么的
+                    value = "选 CSV 文件",
+                    showArrow = true,
+                    onClick = { state.beginPick(PickKind.Csv) },
+                )
+                ListItem(
+                    icon = AppIcons.Cleaning,
+                    label = "校对本机曲库",
+                    value = "${state.allScores.size} 首",
+                    showArrow = true,
+                    onClick = { state.openFixFromLibrary() },
                 )
             }
         }

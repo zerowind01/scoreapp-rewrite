@@ -58,6 +58,7 @@ import com.example.scoreapp.ui.screens.WorksScreen
 import com.example.scoreapp.ui.screens.membersOf
 import com.example.scoreapp.ui.sheets.EditSheet
 import com.example.scoreapp.ui.sheets.FilterSheet
+import com.example.scoreapp.ui.sheets.FixAiSheet
 import com.example.scoreapp.ui.sheets.ImportSheet
 import com.example.scoreapp.ui.sheets.MoreSheet
 import com.example.scoreapp.ui.sheets.SetDetailSheet
@@ -74,12 +75,14 @@ import kotlinx.coroutines.delay
  *
  * @param onPickImages 请求系统相册多选；由平台侧注入（Android 才能拉起选择器）
  * @param onPickPdf 请求系统文件选择器单选 PDF
+ * @param onPickCsv 请求系统文件选择器单选 CSV（forScore 导出的标签表）
  */
 @Composable
 fun AppRoot(
     state: ScoreAppState,
     onPickImages: () -> Unit = {},
     onPickPdf: () -> Unit = {},
+    onPickCsv: () -> Unit = {},
 ) {
     ScoreAppTheme {
         Box(Modifier.fillMaxSize().background(Tokens.BgPage)) {
@@ -110,13 +113,18 @@ fun AppRoot(
                         current is Screen.Works -> WorksScreen(state, current.composer, navClearance)
                         current is Screen.Manage -> ManageScreen(state, navClearance)
                         current is Screen.Composers -> ComposersScreen(state, navClearance)
+                        // 校对页是整页表格，自己带顶栏与底部动作区，
+                        // 不套用悬浮导台，所以也不给它留底部空间。
+                        current is Screen.Fix -> FixScreen(state)
                         else -> MeScreen(state, navClearance)
                     }
                 }
             }
 
-            // 悬浮导台：仅在主界面（非详情页）显示，与原型一致
-            if (state.detail == null) {
+            // 悬浮导台：仅在主界面（非详情页）显示，与原型一致。
+            // 校对页也排除：它自带底部动作区（导出/写回），
+            // 再叠一个导台会挡住那张表的最后几行。
+            if (state.detail == null && state.current !is Screen.Fix) {
                 BottomNav(
                     state = state,
                     modifier = Modifier
@@ -141,6 +149,7 @@ fun AppRoot(
                 when (state.pendingPick) {
                     PickKind.Images -> onPickImages()
                     PickKind.Pdf -> onPickPdf()
+                    PickKind.Csv -> onPickCsv()
                     PickKind.None -> Unit
                 }
             }
@@ -354,6 +363,7 @@ private fun SheetHost(state: ScoreAppState) {
         SheetKind.Import -> ImportSheet(state, dismiss)
         SheetKind.Sort -> SortSheet(state, dismiss)
         SheetKind.More -> MoreSheet(state, dismiss)
+        SheetKind.FixAi -> FixAiSheet(state, dismiss)
         SheetKind.SetDetail -> {
             val set = state.viewingSet
             if (set != null) {

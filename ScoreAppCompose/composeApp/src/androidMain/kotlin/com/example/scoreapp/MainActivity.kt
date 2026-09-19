@@ -95,6 +95,20 @@ class MainActivity : ComponentActivity() {
                 if (uri != null) state.importFromPdf(uri.toString())
             }
 
+            // forScore 导出的标签 CSV 单选。
+            //
+            // MIME 写 `text/*` 而不是 `text/csv`：CSV 在 Android 上没有统一的
+            // 注册 MIME，各家文件管理器给出的类型五花八门（text/csv、
+            // text/comma-separated-values、application/csv，甚至 text/plain），
+            // 写死一个会让文件在选择器里变灰选不中。放开到 text/* 再在解析时
+            // 校验内容，是这类文件唯一稳的做法。
+            val csvPicker = rememberLauncherForActivityResult(
+                ActivityResultContracts.GetContent(),
+            ) { uri ->
+                state.consumePick()
+                if (uri != null) state.importCsvForFix(uri.toString())
+            }
+
             // 导入意图一旦挂上就立刻拉起选择器，拉完即复位
             LaunchedEffect(state.pendingPick) {
                 when (state.pendingPick) {
@@ -103,6 +117,7 @@ class MainActivity : ComponentActivity() {
                         imagePicker.launch(PickVisualMediaRequest(ImageOnly))
                     }
                     PickKind.Pdf -> pdfPicker.launch("application/pdf")
+                    PickKind.Csv -> csvPicker.launch("text/*")
                     PickKind.None -> Unit
                 }
             }
@@ -128,6 +143,7 @@ class MainActivity : ComponentActivity() {
                 // 走上面的 LaunchedEffect（需要 launcher 实例，只能在 Composable 里取）。
                 onPickImages = {},
                 onPickPdf = {},
+                onPickCsv = {},
             )
 
             // 崩溃浮层盖在最上层；关掉只收浮层，不影响应用内容

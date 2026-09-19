@@ -8,6 +8,9 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.example.scoreapp.data.SampleLibrary
 import com.example.scoreapp.domain.ComposerNames
 import com.example.scoreapp.domain.LibraryQuery
+import com.example.scoreapp.domain.csvfix.AiField
+import com.example.scoreapp.domain.csvfix.AiFill
+import com.example.scoreapp.domain.csvfix.LibraryAdapter
 import com.example.scoreapp.domain.formatBytes
 import com.example.scoreapp.model.FilterDim
 import com.example.scoreapp.model.FilterState
@@ -16,13 +19,16 @@ import com.example.scoreapp.model.Score
 import com.example.scoreapp.model.ScoreSet
 import com.example.scoreapp.model.Screen
 import com.example.scoreapp.model.SortMode
+import com.example.scoreapp.util.AiConfig
 import com.example.scoreapp.util.FileBridge
 import com.example.scoreapp.util.StorageUsage
+import com.example.scoreapp.util.createAiBridge
 import com.example.scoreapp.util.nowMillis
+import com.example.scoreapp.util.nowStamp
 import com.example.scoreapp.util.toShareInfo
 
 /** 当前展开的底部弹层 */
-enum class SheetKind { None, Filter, Import, Edit, Sort, SetDetail, More }
+enum class SheetKind { None, Filter, Import, Edit, Sort, SetDetail, More, FixAi }
 
 /** 乐谱库页内的两个子页签 */
 enum class LibraryTab(val label: String) { Scores("乐谱库"), Sets("合集") }
@@ -34,7 +40,7 @@ enum class LibraryTab(val label: String) { Scores("乐谱库"), Sets("合集") }
  * `MainActivity` 的 launcher 回调里（拿到 uri 之后）。用枚举而不是布尔值，
  * 是因为两条通道拿到 uri 后要做的事完全不同，必须能分辨。
  */
-enum class PickKind { None, Images, Pdf }
+enum class PickKind { None, Images, Pdf, Csv }
 
 /**
  * 打开阅读器的请求。
@@ -224,6 +230,273 @@ class ScoreAppState {
     var cacheBytes by mutableStateOf(0L)
         private set
 
+    // ---------- forScore 标签校对 ----------
+
+    /**
+     * 当前打开的校对会话；null 表示没在核对。
+     *
+     * 它是一个**有始有终的子任务**，所以单独成对象（见 [FixSession]）：
+     * 关掉校对页就整体丢弃，不给曲库状态留残渣。
+     */
+    var fixSession by mutableStateOf<FixSession?>(null)
+        private set
+
+    /** 校对页是否正开着（它是整页覆盖视图，不占弹层位） */
+    val fixOpen: Boolean get() = fixSession != null
+
+    /**
+     * AI 设置。**刻意只存在内存里、不落盘**：
+     * 密钥落盘就要考虑加密与备份泄漏，而这是个自用工具，
+     * 每次开 App 重填一次的代价远小于把密钥留在设备上的风险。
+     */
+    var aiConfig by mutableStateOf(AiConfig())
+        private set
+
+    /** AI 弹层里用户在编辑的提示词；null 表示还没动过（用默认值） */
+    var aiPrompt by mutableStateOf<String?>(null)
+
+    /**
+     * AI 调用的进行状态，用于按钮禁用与转圈。
+     *
+     * 这几个 AI 状态属性**不设 `private set`**：它们的写入方就是弹层
+     * （转圈由弹层发起、错误由弹层展示），包一层 `setAiXxx()` 只会
+     * 与属性自身生成的 setter 撞 JVM 签名（`setAiBusy(Z)V`）。
+     */
+    var aiBusy by mutableStateOf(false)
+
+    /** 上一次 AI 调用失败的原因；成功或关闭弹层时清空 */
+    var aiError by mutableStateOf<String?>(null)
+
+    /** 用户手动粘贴进来的回答（「手动粘贴」那条路） */
+    var aiPaste by mutableStateOf("")
+
+    /** 最近一次 AI 落地产生了几条改动，用于提示文案 */
+    var aiLastApplied by mutableStateOf(0)
+
+    /** 开一次校对会话，来源为 forScore CSV 文本 */
+    fun openFixFromCsv(text: String) {
+        if (text.isBlank()) {
+            showToast("这个文件是空的")
+            return
+        }
+        fixSession = FixSession.fromCsv(text)
+        if (fixSession?.entries?.isEmpty() == true) {
+            fixSession = null
+            showToast("CSV 里没有数据行")
+            return
+        }
+        push(Screen.Fix)
+    }
+
+    /** 开一次校对会话，来源为 App 自己的曲库 */
+    fun openFixFromLibrary() {
+        if (allScores.isEmpty()) {
+            showToast("曲库是空的")
+            return
+        }
+        fixSession = FixSession.fromLibrary(allScores.toList())
+        push(Screen.Fix)
+    }
+
+    fun closeFix() {
+        fixSession = null
+        aiError = null
+        aiPaste = ""
+        aiPrompt = null
+        // 退掉校对页；只有当它确实在栈顶时才弹（栈底不可弹，否则会空栈）
+        if (navStack.lastOrNull() == Screen.Fix && navStack.size > 1) back()
+    }
+
+    fun updateAiConfig(config: AiConfig) {
+        aiConfig = config
+    }
+
+    fun openFixAi() {
+        aiError = null
+        sheet = SheetKind.FixAi
+    }
+
+    /**
+     * 把当前要问的提示词**连同数据**复制到剪贴板。
+     *
+     * 复制的是完整的对话消息（含那一批乐谱数据），不是光秃秃的提示词 ——
+     * 用户要拿着它去网页里问，缺了数据 AI 无从下手。
+     * 没有可补条目时只复制提示词，并提示一句。
+     */
+    fun copyAiPrompt(prompt: String) {
+        val bridge = bridge
+        if (bridge == null) {
+            showToast("剪贴板不可用")
+            return
+        }
+        aiPrompt = prompt
+        val request = buildAiRequest()
+        val text = if (request == null) {
+            showToast("没有需要补全的条目，只复制了提示词")
+            prompt
+        } else {
+            // 拼成「系统提示 + 用户数据」两段，用户整段贴进网页聊天窗即可
+            request.second.joinToString("\n\n") { it.content }
+        }
+        if (bridge.copyText(text)) {
+            showToast("已复制，去网页里粘贴提问吧")
+        } else {
+            showToast("复制失败")
+        }
+    }
+
+    /**
+     * 把采纳的改动写回曲库。
+     *
+     * 只对 [FixSource.Library] 有意义 —— CSV 来源的出口是「导出文件」，
+     * 由用户自己导回 iPad，App 这边不该擅自改曲库。
+     *
+     * @return 实际改动的乐谱数
+     */
+    fun applyFixToLibrary(): Int {
+        val session = fixSession ?: return 0
+        if (session.source != FixSource.Library) return 0
+        var changed = 0
+        session.entries.forEach { e ->
+            val score = e.score ?: return@forEach
+            val fields = session.takenFields(e)
+            if (fields.isEmpty()) return@forEach
+            val next = LibraryAdapter.applyTo(score, e.proposal, fields)
+            if (next == score) return@forEach
+            val index = allScores.indexOfFirst { it.id == score.id }
+            if (index >= 0) {
+                allScores[index] = next
+                // 详情是覆盖视图、持的是快照，正开着这条就一并换掉，否则显示旧值
+                if (detail?.id == score.id) detail = next
+                changed++
+            }
+        }
+        return changed
+    }
+
+    /**
+     * 落地全部采纳的改动。两个来源的出口不同：
+     *
+     * - [FixSource.Csv]：生成新 CSV 交系统分享出去，用户自己导回 iPad。
+     *   App 不碰他的曲库 —— 那份数据在 iPad 上，App 改了也没用。
+     * - [FixSource.Library]：原地更新 [allScores]。
+     *
+     * 成功后关闭校对页并提示结果。**失败时留在页面上**，
+     * 否则用户看不到失败原因就得重新走一遍选文件。
+     */
+    fun commitFix() {
+        val session = fixSession ?: return
+        when (session.source) {
+            FixSource.Csv -> {
+                val bridge = bridge
+                if (bridge == null) {
+                    showToast("导出能力还没就绪")
+                    return
+                }
+                val text = session.exportCsv()
+                val name = "scores-fixed-${nowStamp()}.csv"
+                if (bridge.shareText(text, name)) {
+                    showToast("已导出，导回 iPad 后即可生效")
+                    closeFix()
+                } else {
+                    showToast("导出失败，没有可用的分享目标")
+                }
+            }
+
+            FixSource.Library -> {
+                val n = applyFixToLibrary()
+                showToast(if (n > 0) "已更新 $n 首乐谱" else "没有实际改动")
+                closeFix()
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- AI 调用
+
+    /** 当前会话启用的 AI 字段（目前全开；留出接口以便以后按字段勾选） */
+    private fun aiFields(): List<AiField> = AiFill.AI_FIELDS
+
+    /**
+     * 组装这次要发给 AI 的东西，供两条路（直连 / 手动复制）共用。
+     *
+     * 返回 null 表示没有可补的行，调用方据此提示。
+     */
+    fun buildAiRequest(): Pair<List<Map<String, String>>, List<AiFill.ChatMessage>>? {
+        val session = fixSession ?: return null
+        val fields = aiFields()
+        val targets = session.aiTargets(fields)
+        if (targets.isEmpty()) return null
+        val items = AiFill.buildItems(
+            rows = session.entries.map { it.row },
+            columns = session.columns,
+            indexes = targets,
+            fields = fields,
+        )
+        // items 里的 i 就是会话内下标，模型回答里带回来的也是它，落地时无需换算
+        return items to AiFill.buildMessages(items, fields, aiPrompt)
+    }
+
+    /**
+     * 直连调一次 AI 并把结果落地。
+     *
+     * 失败的三种情形分开告诉用户（没配密钥 / 网络失败 / 回答解析不了），
+     * 不要笼统说「失败了」—— 用户没法据此行动。
+     */
+    suspend fun runAi() {
+        fixSession ?: return
+        if (!aiConfig.ready) {
+            aiError = "还没填接口地址或密钥，去上面的设置里填一下，或改用「手动粘贴」"
+            return
+        }
+        val request = buildAiRequest()
+        if (request == null) {
+            aiError = "没有需要补全的条目"
+            return
+        }
+        aiBusy = true
+        aiError = null
+        try {
+            val reply = createAiBridge().chat(request.second, aiConfig)
+            if (!reply.ok) {
+                aiError = reply.error ?: "调用失败"
+                return
+            }
+            landAiReply(reply.text)
+        } catch (e: Exception) {
+            aiError = "调用出错：${e.message ?: e.javaClass.simpleName}"
+        } finally {
+            aiBusy = false
+        }
+    }
+
+    /** 手动粘贴那条路：把用户贴进来的文本当回答解析 */
+    fun applyPastedAi() {
+        if (aiPaste.isBlank()) {
+            aiError = "还没粘贴内容"
+            return
+        }
+        landAiReply(aiPaste)
+    }
+
+    /** 解析回答并落地；解析不出东西时把原因写到 [aiError] */
+    private fun landAiReply(text: String) {
+        val session = fixSession ?: return
+        val fields = aiFields()
+        val parsed = AiFill.parseReply(text, fields)
+        if (parsed.items.isEmpty()) {
+            aiError = parsed.error ?: "没从回答里解析出可用内容"
+            aiLastApplied = 0
+            return
+        }
+        val n = session.applyAi(parsed.items, fields)
+        aiLastApplied = n
+        aiError = null
+        // 落地后重算一次：AI 给的值可能又触发规则（例如它写了个错拼的作曲家，
+        // 拼写规则该接上继续纠正）。重算会保留用户已做的勾选。
+        session.recompute()
+        showToast(if (n > 0) "AI 补全了 $n 处，请逐条确认" else "AI 没有给出新的建议")
+    }
+
     // ---------- 派生数据 ----------
     val visibleScores: List<Score>
         get() = LibraryQuery.sorted(
@@ -395,6 +668,26 @@ class ScoreAppState {
             filePath = local,
         )
         showToast("已导入 PDF：$title")
+    }
+
+    /**
+     * 导入一份 forScore 导出的 CSV，开一次校对会话。
+     *
+     * 这条路**不落曲库**：CSV 是曲库之外的一份独立数据（来源是 iPad 上的
+     * forScore），校对完导出成新文件给用户导回去。把它塞进曲库毫无意义，
+     * 两者的 `Filename` 也未必对得上。
+     */
+    fun importCsvForFix(uri: String) {
+        val bridge = bridge ?: run {
+            showToast("当前环境不支持导入")
+            return
+        }
+        val text = bridge.readTextFile(uri)
+        if (text == null) {
+            showToast("读取失败，请确认选的是 CSV 文件")
+            return
+        }
+        openFixFromCsv(text)
     }
 
     /**

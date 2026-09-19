@@ -11,6 +11,14 @@ sealed interface Screen {
 
     /** 某位作曲家的作品列表 */
     data class Works(val composer: String) : Screen
+
+    /**
+     * forScore 标签校对页。
+     *
+     * 是一张**整页**而不是弹层：它要展示一张多列的可勾选表格，
+     * 弹层的高度与宽度都撑不开（列多、行可能有几百条）。
+     */
+    data object Fix : Screen
 }
 
 /** 底部导航项 */
