@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.scoreapp.domain.csvfix.ScoreKey
 import com.example.scoreapp.domain.formatDate
 import com.example.scoreapp.domain.setMembers
 import com.example.scoreapp.domain.setsOfScore
@@ -158,6 +159,11 @@ fun DetailScreen(
                 Column(Modifier.padding(horizontal = 14.dp, vertical = 2.dp)) {
                     KV("作曲家", score.composer)
                     KV("曲目类型", score.type)
+                    // 调性是可选字段：没设置的条目**整行不出现**，
+                    // 而不是显示一个「—」占位，免得让「没填」看起来像「填了个空值」
+                    ScoreKey.label(score.keysf, score.keymi)
+                        .takeIf { it.isNotEmpty() }
+                        ?.let { KV("调性", it) }
                     KV("乐器", score.instrument)
                     KV("时期 / 风格", score.period)
                     KV("难度", score.level)

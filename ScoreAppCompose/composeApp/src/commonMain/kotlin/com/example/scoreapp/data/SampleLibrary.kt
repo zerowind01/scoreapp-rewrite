@@ -32,6 +32,8 @@ object SampleLibrary {
             rows: Int,
             assetPdf: String? = null,
             isAi: Boolean = false,
+            keysf: Int? = null,
+            keymi: Int? = null,
             cover: (Score.() -> Score)? = null,
         ) {
             val id = (size + 1).toLong()
@@ -51,12 +53,21 @@ object SampleLibrary {
                 thumbSeed = seed,
                 thumbRows = rows,
                 thumbCols = 1,
+                keysf = keysf,
+                keymi = keymi,
             )
             if (cover != null) score = score.cover()
             add(score)
         }
 
-        add("《升c小调第十四钢琴奏鸣曲「月光」》Op.27 No.2", "路德维希·范·贝多芬", "奏鸣曲", "钢琴", "古典", "高级", "Henle 原版", 14, 37, 5, assetPdf = "moonlight_op27_no2.pdf")
+        // 调性只给「整册一个调」的条目填：
+        // - 月光：升 c 小调 = 关系大调 E 大调（4 个升号，小调）
+        // - 夜曲集 / 四季：一册里多个调，单值会误导，**刻意留空**
+        add(
+            "《升c小调第十四钢琴奏鸣曲「月光」》Op.27 No.2", "路德维希·范·贝多芬", "奏鸣曲",
+            "钢琴", "古典", "高级", "Henle 原版", 14, 37, 5,
+            assetPdf = "moonlight_op27_no2.pdf", keysf = 4, keymi = 1,
+        )
         add("《夜曲集》", "弗雷德里克·弗朗索瓦·肖邦", "夜曲", "钢琴", "浪漫", "中级", "Henle 原版", 88, 71, 6)
         // 一张封面型缩略图，用于展示 cover 渲染分支（曲库精简后仍需保留这一支）
         add(

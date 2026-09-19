@@ -41,6 +41,16 @@ data class Score(
     val coverTGap: Float = 15f,
     val coverSubX: Float = 15f,
     val coverSubY: Float = 120f,
+    /**
+     * 调性，映射到 forScore 的 `keysf` / `keymi` 两列：
+     * [keysf] 是 −7..7 的升降号个数（负数 = 降号），[keymi] 是 0 大调 / 1 小调。
+     *
+     * 为什么用两个 Int 而不是一个字符串：forScore 的 CSV 就长这样，
+     * 用同一套表示可以让「曲库 ↔ CSV」的互转不需要任何解析；
+     * 给用户看的名字由 [keyText] 现算（见 `ScoreKey.label`）。
+     */
+    val keysf: Int? = null,
+    val keymi: Int? = null,
 ) {
     /** 是否已关联可打开的 PDF 文件 */
     val hasPdf: Boolean
@@ -49,6 +59,16 @@ data class Score(
     /** 展示用的文件名（优先本地导入文件） */
     val displayFile: String?
         get() = filePath?.takeIf { it.isNotBlank() } ?: assetPdf?.takeIf { it.isNotBlank() }
+
+    /**
+     * 可读调性名（如「降B大调」「A小调」）；没设置调性返回空串。
+     *
+     * **刻意不在这个文件里引 `ScoreKey`**：model 层保持零依赖，
+     * 显示层要名字时自己调 `ScoreKey.label(score.keysf, score.keymi)`。
+     * 这里只提供「有没有调性」这个判断，够 UI 决定要不要显示整行用了。
+     */
+    val hasKey: Boolean
+        get() = keysf != null
 
     companion object {
         const val THUMB_ENGRAVE = "engrave"
