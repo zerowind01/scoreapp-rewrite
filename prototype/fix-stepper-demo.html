@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>逐条校对 · 交互演示</title>
+<!--
+  这是「逐条校对页」的**交互演示**，仅供确认手感，不是交付物。
+  页面规则是精简版，最终以 Kotlin 的 domain/csvfix/ 为准；
+  本文件不进回归测试（与 scoreapp-prototype.html 的 297 项无关）。
+
+  演示重点：
+  1. 一屏一条，全部条目依次翻阅
+  2. 字段列全（含无建议的）
+  3. 逐字段采纳，采纳即「保存」（写入 localStorage，模拟跨会话存盘）
+  4. 刷新页面可验证：上次确认过的还在，且进度接着走
+  5. 每个字段都能自己填（含规则/AI 都给不出的「标签」「来源」），
+     填过的值按字段攒成「用过的值」，下次直接点
+-->
+<style>
+  :root{
+    --bg:#F4F4F6; --surface:#fff; --s2:#F1F1F4; --s3:#E9E9EC;
+    --t1:#111113; --t2:#6C6C73; --t3:#A5A5AD; --line:#ECECEF;
+    --accent:#111113; --accentfg:#fff;
+    --blue:#0A72C4; --bluebg:#E7F2FC;
+    --dangerbg:#FDECEC; --dangerfg:#D23A3A;
+    --live:#0D7A4A;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  body{
+    margin:0; background:#DFDFE3; color:var(--t1);
+    font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+    display:flex; flex-direction:column; align-items:center; padding:20px 12px 40px; gap:14px;
+  }
+  .phone{
+    width:390px; max-width:100%; background:var(--bg); border-radius:26px; overflow:hidden;
+    box-shadow:0 1px 3px rgba(0,0,0,.08);
+  }
+  .app{display:flex; flex-direction:column; height:720px}
+
+  .top{padding:10px 16px 0; background:var(--surface)}
+  .toprow{display:flex; align-items:center; gap:8px}
+  .back{width:30px; height:30px; border-radius:15px; background:var(--s3);
+    display:flex; align-items:center; justify-content:center; font-size:15px; color:var(--t2)}
+  .where{font-size:14px; font-weight:700}
+  .spacer{flex:1}
+  .meta{font-size:11px; color:var(--t3)}
+  .bar{height:4px; border-radius:2px; background:var(--s3); margin:9px 0 0; overflow:hidden}
+  .bar>i{display:block; height:4px; background:var(--accent); width:0}
+  .tools{display:flex; gap:12px; font-size:11px; color:var(--blue); padding:7px 0 9px}
+
+  .filebox{margin:0; padding:12px 16px; background:var(--s2); border-bottom:1px solid var(--line)}
+  .filebox .k{font-size:11px; color:var(--t3)}
+  .filebox .v{font-size:13px; font-weight:700; margin-top:3px; word-break:break-all}
+
+  .fields{flex:1; overflow-y:auto; padding:4px 16px 8px; background:var(--surface)}
+  .f{display:flex; gap:10px; padding:11px 0; border-bottom:1px solid var(--line)}
+  .f:last-child{border-bottom:0}
+  .flabel{width:46px; flex:none; font-size:11px; color:var(--t3); padding-top:2px}
+  .fbody{flex:1; min-width:0}
+  .old{font-size:12px; color:var(--t3); word-break:break-word}
+  .new{font-size:13px; font-weight:700; color:var(--blue); margin-top:3px; word-break:break-word}
+  .plain{font-size:12px; color:var(--t2); word-break:break-word}
+  .none{font-size:11px; color:var(--t3); margin-top:2px}
+  .badge{display:inline-block; margin-left:6px; padding:0 5px; border-radius:5px;
+    background:var(--dangerbg); color:var(--dangerfg); font-size:10px; font-weight:700}
+  .tag{display:inline-block; margin-left:6px; padding:0 5px; border-radius:5px;
+    background:var(--bluebg); color:var(--blue); font-size:10px; font-weight:700}
+  .chk{width:22px; height:22px; flex:none; border-radius:7px; background:var(--s3);
+    display:flex; align-items:center; justify-content:center; color:#fff; font-size:13px; font-weight:700}
+  .chk.on{background:var(--accent)}
+  .chk.empty{background:transparent}
+
+  .fopen{display:inline-flex; align-items:center; gap:4px; margin-top:6px;
+    font-size:11px; color:var(--blue)}
+  .fopen:active{opacity:.6}
+  .fedit{margin-top:7px; display:none}
+  .fedit.on{display:block}
+  .finput{width:100%; height:34px; border:1px solid var(--line); border-radius:10px;
+    padding:0 10px; font:13px/1 inherit; background:var(--s2); color:var(--t1)}
+  .finput:focus{outline:none; border-color:var(--blue)}
+  .finput::placeholder{color:var(--t3)}
+  .chips{display:flex; flex-wrap:wrap; gap:6px; margin-top:7px}
+  .chip{max-width:100%; padding:3px 9px; border-radius:8px; background:var(--s3); color:var(--t2);
+    font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .chip:active{opacity:.6}
+  .chiptt{font-size:11px; color:var(--t3); margin-top:7px}
+  .edacts{display:flex; gap:7px; margin-top:8px}
+  .mini{flex:1; height:30px; border-radius:9px; background:var(--s3); color:var(--t2);
+    display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700}
+  .mini.pri{background:var(--accent); color:var(--accentfg)}
+  .mini:active{opacity:.7}
+  .utag{display:inline-block; margin-left:6px; padding:0 5px; border-radius:5px;
+    background:var(--live); color:#fff; font-size:10px; font-weight:700}
+
+  .foot{display:flex; gap:8px; padding:10px 16px 14px; background:var(--surface); border-top:1px solid var(--line)}
+  .btn{flex:1; height:44px; border-radius:13px; background:var(--s3); color:var(--t2);
+    display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700}
+  .btn.pri{flex:1.5; background:var(--accent); color:var(--accentfg)}
+  .btn.ghost{background:transparent; border:1px solid var(--line); color:var(--t1)}
+  .btn:active{opacity:.75}
+
+  .hint{width:390px; max-width:100%; font-size:12px; color:#5A5A62; background:#fff;
+    border-radius:12px; padding:12px 14px}
+  .hint b{font-weight:700}
+  .hint ul{margin:6px 0 0; padding-left:18px}
+  .hint li{margin:3px 0}
+  .kbd{display:inline-block; padding:0 5px; border:1px solid #D8D8DE; border-radius:4px; font-size:11px}
+
+  /* ---- 顶部 AI 生成条（与逐条页同屏）---- */
+  .aibar{background:var(--surface); border-bottom:1px solid var(--line); padding:9px 16px 10px}
+  .airowtop{display:flex; align-items:center; gap:7px}
+  .ailab{font-size:11px; color:var(--t3); flex:none}
+  .aiinput{flex:1; min-width:0; height:34px; border:1px solid var(--line); border-radius:10px;
+    padding:0 10px; font:13px/1 inherit; background:var(--s2); color:var(--t1)}
+  .aiinput::placeholder{color:var(--t3)}
+  .aigo{flex:none; height:34px; padding:0 14px; border-radius:10px; background:var(--accent);
+    color:var(--accentfg); font-size:13px; font-weight:700; display:flex; align-items:center}
+  .aigo:active{opacity:.75}
+  .aigo.busy{background:var(--s3); color:var(--t2)}
+  .aihint{font-size:11px; color:var(--t3); margin-top:5px}
+  .aihint:empty{display:none}
+  .aihint.err{color:var(--dangerfg)}
+  /* 常驻的「怎么问才准」清单：不给背景块，免得跟下面的结果面板抢注意力，
+     只用一条左侧竖线标出「这是说明、不是结果」 */
+  .aitips{margin-top:7px; padding-left:8px; border-left:2px solid var(--line);
+    font-size:10.5px; line-height:16px; color:var(--t3)}
+  .aitips b{color:var(--t2); font-weight:700}
+  .aiout{display:none; margin-top:9px}
+  .aiout.on{display:block}
+  .aiout .r{display:flex; gap:8px; padding:4px 0; align-items:baseline}
+  .aiout .r .k{width:52px; flex:none; font-size:11px; color:var(--t3)}
+  .aiout .r .v{flex:1; min-width:0; font-size:13px; font-weight:700; word-break:break-word}
+  .ainote{font-size:11px; color:var(--blue); background:var(--bluebg); border-radius:7px;
+    padding:6px 9px; margin-bottom:7px}
+  .ainote.warn{color:var(--dangerfg); background:var(--dangerbg)}
+  .aiacts{display:flex; gap:7px; margin-top:8px}
+  .aimini{flex:1; height:30px; border-radius:9px; background:var(--s3); color:var(--t2);
+    display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700}
+  .aimini.pri{background:var(--accent); color:var(--accentfg)}
+  .aimini:active{opacity:.75}
+</style>
+</head>
+<body>
+
+<div class="phone"><div class="app">
+  <div class="top">
+    <div class="toprow">
+      <div class="back">&#8249;</div>
+      <div class="where" id="where">第 1 / 549 条</div>
+      <div class="spacer"></div>
+      <div class="meta" id="meta">已存 0</div>
+    </div>
+    <div class="bar"><i id="barfill"></i></div>
+    <div class="tools">
+      <span id="jump">跳到下一条未处理</span>
+      <span id="export">导出 CSV</span>
+      <span id="reset" style="color:var(--t3)">清空存档</span>
+    </div>
+  </div>
+
+  <div class="aibar" id="aibar">
+    <div class="airowtop">
+      <div class="ailab" id="ailab">AI 生成</div>
+      <input class="aiinput" id="aiprompt" placeholder="写曲名，如 月光奏鸣曲" autocomplete="off">
+      <div class="aigo" id="aigo">生成</div>
+    </div>
+    <!--
+      常驻的「怎么问才准」清单。
+
+      原先只有「没认出这首曲子」那一条兜底提示，用户要失败两三次才知道该补作曲家。
+      提示词是这一页唯一的质量旋钮，那就不该等失败才教。
+
+      第 2 句是踩坑换来的，别再删：曾经为了治「只认两三个字段」而写过
+      「五个键一个都不能少」，结果它跟「不确定就填空」打架 ——
+      小模型认不出（识别不了）的曲子时凑不出五个键，干脆整条放弃，
+      还顺手从曲名里抄一个调性交差。**看起来有用的噪音比明说不知道危险得多。**
+      所以「不许省略」只对认得出来的作品生效，认不出就回 []。
+    -->
+    <div class="aitips" id="aitips">
+      写全一点更准：带上<b>作曲家</b>、<b>作品号</b>，外国曲子可以写原文；<b>调性</b>写 am / bE / c#m；<b>乐器</b>写 Piano / 二胡。<br>
+      认得的曲子会补齐五项，不确定的留空；<b>认不出就直接说没认出，不要硬凑</b> —— 猜出来的调性比留空更糟。
+    </div>
+    <div class="aihint" id="aistate"></div>
+    <div class="aiout" id="aipanel"></div>
+  </div>
+
+  <div class="filebox">
+    <div class="k">文件名 · 关联主键，永不被改</div>
+    <div class="v" id="fname">—</div>
+  </div>
+
+  <div class="fields" id="fields"></div>
+
+  <div class="foot">
+    <div class="btn ghost" id="prev">&#8592; 上一条</div>
+    <div class="btn pri" id="next">采纳并继续 &#8594;</div>
+  </div>
+</div></div>
+
+<div class="hint">
+  <b>演示说明</b>
+  <ul>
+    <li>数据是生成的 549 条样例（风格照你的真实 CSV：带序号、_pdf、书名号、扫描水印、调号尾巴）。建议由页面里的精简规则现算。</li>
+    <li>顶部是 AI 生成条：写曲名点「生成」，结果直接铺成当前条的候选项，勾选才采纳。</li>
+    <li>AI 条下面常驻一行「怎么问才准」。它是在补一个真实缺陷：提示词是这一页唯一的质量旋钮，而原先要失败两三次、看到「没认出这首曲子」才知道该补作曲家。</li>
+    <li>只列出 AI 真给出值的字段，没给的整行不画。小模型只回两三个字段时，满屏「（未给出）」会看着像功能坏了。</li>
+    <li>勾选＝采纳该字段，「采纳并继续」会把当前条的决定<b>写入存档</b>并翻到下一条。存档用 localStorage，<b>刷新页面即可验证跨会话不丢</b>。</li>
+    <li>覆盖你已填过值的建议带红色「覆盖」徽标，<b>默认不勾</b>。</li>
+    <li><b>每个字段都能自己填</b>：点「＋ 自己填」写值，写完自动勾上并立刻落盘；填的值带绿色「自填」标，
+        优先级高于 AI 和规则。规则给不出、AI 又永不碰的<b>「标签」「来源」</b>就靠它。</li>
+    <li><b>填过的值会记住</b>：同一字段再展开就有「用过的值」可直接点（按字段分组、最近用在前、最多 8 个），
+        刷新也在。「清空存档」只清进度，<b>不清这张词表</b>。</li>
+    <li>键盘：<span class="kbd">&#8592;</span> <span class="kbd">&#8594;</span> 翻页，<span class="kbd">空格</span> 采纳并继续。</li>
+  </ul>
+</div>
+
+<script>
+const FIELDS = [
+  {k:'title',    cn:'曲名',    col:1},
+  {k:'composer', cn:'作曲家',  col:4},
+  {k:'genre',    cn:'乐曲类型',col:5},
+  {k:'tag',      cn:'编配',    col:6},
+  {k:'label',    cn:'标签',    col:7},
+  {k:'ref',      cn:'来源',    col:8},
+  {k:'key',      cn:'调性',    col:13},
+];
+const HEADER = ['Filename','Title','Start Page (Bookmark)','End Page (Bookmark)','Composers','Genres','Tags','Labels','Reference','Rating','Difficulty','Minutes','Seconds','keysf','keymi'];
+
+const BASE = [
+  '像天使一样美丽','月半小夜曲','月光奏鸣曲','梦幻曲','少女的祈祷','致爱丽丝','土耳其进行曲',
+  '天空之城','卡农','G弦上的咏叹调','爱的礼赞','梦幻曲集','牧童短笛','彩云追月','茉莉花',
+  '康定情歌','在那遥远的地方','茉莉芬芳','二泉映月','春江花月夜','渔舟唱晚','高山流水',
+  '夜曲','革命练习曲','英雄波兰舞曲','小狗圆舞曲','升c小调圆舞曲','叙事曲','谐谑曲','船歌',
+  '圣母颂','婚礼进行曲','春之声圆舞曲','蓝色多瑙河','拉德斯基进行曲','天鹅湖','胡桃夹子',
+];
+const COMPS = ['多尼采蒂','肖邦','巴赫','贝多芬','莫扎特','李斯特','舒曼','柴可夫斯基','德彪西','门德尔松','勃拉姆斯','舒伯特','格里格','德沃夏克','普契尼','威尔第','罗西尼','圣桑','斯卡拉蒂','海顿'];
+const SPELL = {'多尼采蒂':'Gaetano Donizetti','肖邦':'Frédéric Chopin','巴赫':'Johann Sebastian Bach','贝多芬':'Ludwig van Beethoven','莫扎特':'Wolfgang Amadeus Mozart','李斯特':'Franz Liszt','舒曼':'Robert Schumann','柴可夫斯基':'Pyotr Ilyich Tchaikovsky','德彪西':'Claude Debussy','门德尔松':'Felix Mendelssohn','勃拉姆斯':'Johannes Brahms','舒伯特':'Franz Schubert','格里格':'Edvard Grieg','德沃夏克':'Antonín Dvořák','普契尼':'Giacomo Puccini','威尔第':'Giuseppe Verdi','罗西尼':'Gioachino Rossini','圣桑':'Camille Saint-Saëns','斯卡拉蒂':'Domenico Scarlatti','海顿':'Joseph Haydn'};
+const NOISE = [
+  s => (s.n + 1) + '_' + s.t,
+  s => s.t + '_pdf',
+  s => '《' + s.t + '》',
+  s => s.t + s.keyTail,
+  s => s.t + '(Z-Library)',
+  s => s.t,
+];
+const KEYSF = ['C','G','D','A','E','B','降B','降E','降A','升F'];
+
+// ---- 造 549 条样例：标题按索引取、噪声按索引轮换，保证条条不同 ----
+const ROWS = [];
+for (let i = 0; i < 549; i++) {
+  const t = BASE[i % BASE.length];
+  const seed = { t, n: i, keyTail: KEYSF[(i * 3) % KEYSF.length] };
+  const noised = NOISE[i % NOISE.length](seed);
+  // Filename 是关联主键，必须条条唯一（早期版本只靠 标题×噪声 轮换，549 条里只有 331 个不同名）
+  const serial = String(i + 1).padStart(3, '0');
+  const comp = COMPS[(i * 7) % COMPS.length];
+  const hasComp = i % 3 !== 0;              // 三分之一没填作曲家
+  const hasGenre = i % 4 === 0;             // 少数填了类型
+  ROWS.push({
+    fileName: noised + '_' + serial + '.pdf',
+    title: noised,
+    composer: hasComp ? comp : '',
+    genre: hasGenre ? '教学' : '',
+    tag: '',
+    label: i % 5 === 0 ? '考级' : '',
+    ref: '',
+    keysf: null, keymi: null,
+  });
+}
+
+// ---- 精简版建议规则（演示用，与 Kotlin domain/csvfix 同思路） ----
+
+// 标题清洗：把文件名来的脏串洗成界面上的标准名。
+// 单独抽出来是因为有两个调用方：propose（决定要不要改标题）
+// 和 looksRelated（AI 对不上的守卫）。两边必须走同一份清洗，
+// 否则会出现「屏幕上显示「月光」，守卫却拿「月光pdf」去比」的自相矛盾。
+// 对应 Kotlin 侧的 FixRules.cleanTitle。
+function cleanTitle(raw) {
+  let t = raw || '';
+  // 循环剥：x_pdf.pdf 这类要连着去两次
+  let prev;
+  do { prev = t; t = t.replace(/[._\-\s]*pdf$/i, ''); } while (t !== prev && t);
+  t = t.replace(/[（(【\[]\s*(?:原调\s*[-－]?\s*)?[降升]?\s*[A-G][#b♯♭]?\s*(?:调)?\s*[）)】\]]/g, '');
+  t = t.replace(/[《》【】〈〉]/g, '');
+  t = t.replace(/^\d{1,3}[._、](?![0-9])\s*/, '');
+  t = t.replace(/[（(\[]\s*(z-?lib\w*|zlibrary|scan\w*)\s*[）)\]]/gi, '');
+  t = t.replace(/^完整乐谱\s*[-－—]\s*/, '');
+  t = t.replace(/[-\s]*\d+\s*页.*$/, '');
+  t = t.replace(/[（(]\s*\d+\s*[）)]\s*$/, '');
+  t = t.replace(/[-\s_]?[降升][A-G][#b♯♭]?$/, '');
+  if (!t.includes('转')) t = t.replace(/([一-龥])([A-G][#b♯♭]?)$/, '$1');
+  return t.replace(/\s{2,}/g, ' ').trim();
+}
+
+function propose(r) {
+  const p = { title:null, composer:null, genre:null, tag:null, label:null, ref:null, key:null };
+  const ov = {};
+
+  const t = cleanTitle(r.title);
+  if (t && t !== r.title) { p.title = t; if (r.title) ov.title = r.title; }
+  else if (!r.title) p.title = null;
+
+  if (r.composer) {
+    const hit = SPELL[r.composer];
+    if (hit && hit !== r.composer) { p.composer = hit; ov.composer = r.composer; }
+  } else {
+    p.composer = null;
+  }
+
+  if (!r.genre) {
+    const g = /练习|拜厄|车尔尼/.test(t) ? '基本功练习'
+      : /夜曲/.test(t) ? 'Nocturne'
+      : /奏鸣/.test(t) ? 'Sonata'
+      : /圆舞/.test(t) ? 'Waltz'
+      : /进行曲/.test(t) ? 'March'
+      : /合唱|牧歌/.test(t) ? '合唱'
+      : /情歌|茉莉|彩云|二泉/.test(t) ? '中国作品'
+      : null;
+    if (g) p.genre = g;
+  }
+  if (!r.tag && p.genre) {
+    p.tag = /合唱/.test(p.genre) ? '混声四部' : (/中国作品/.test(p.genre) ? '钢琴伴奏' : '钢琴');
+  }
+  if (!r.label) p.label = '教学';
+  return { p, ov };
+}
+
+const KEY = 'fix-demo-saved-v2';
+// ===================================================================
+// 下面是「AI 独立页」的演示实现。
+// 真机上这一段是发给大模型的提示词 + 返回解析，这里用一张缩小版曲目表
+// 冒充模型的音乐知识，只为让你看清交互与格式，不是真实识别能力。
+// 格式铁律（Jackson 2026-09-19 拍板）：
+//   中国作品 → 曲名/作曲家/乐器都用中文
+//   其余     → 曲名原文全称带作品号、作曲家原文、乐器英文
+//   调性     → 一律缩写小写形式 c#m / C / bB（与 forScore keysf/keymi 同源）
+//   AI 只负责这五个字段：曲名 / 作曲家 / 乐器 / 调性 / 乐曲类型。
+//   标签(Labels)、来源(Reference) AI 不碰 —— 那两个是用户自己的分类体系，AI 编不出来。
+// ===================================================================
+
+// 乐器词表：{中, 英, 正则}。识别顺序即优先级。
+const INSTR = [
+  { cn:'钢琴', en:'Piano', re:/钢琴|piano|奏鸣|夜曲|练习曲|圆舞|前奏曲|叙事曲|谐谑|船歌|练习|车尔尼|拜厄/i },
+  { cn:'小提琴', en:'Violin', re:/小提琴|violin|浪漫曲|流浪者/i },
+  { cn:'大提琴', en:'Cello', re:/大提琴|cello/i },
+  { cn:'长笛', en:'Flute', re:/长笛|flute/i },
+  { cn:'吉他', en:'Guitar', re:/吉他|guitar/i },
+  { cn:'古筝', en:'Guzheng', re:/古筝|筝/i },
+  { cn:'二胡', en:'Erhu', re:/二胡|胡琴/i },
+  { cn:'琵琶', en:'Pipa', re:/琵琶/i },
+  { cn:'声乐', en:'Voice', re:/合唱|声乐|牧歌|咏叹|歌曲|艺术歌曲/i },
+];
+
+// 缩小版曲目库：key 是**提示词里出现的关键片段**，命中即采用。
+// 顺序即优先级，长片段在前，避免「月光」先于「月光奏鸣曲」被吃掉。
+// genre 同样遵守语系规则：外国作品用原文类型名，中国作品用中文类型名。
+const KNOW = [
+  // --- 外国 ---
+  { hit:/月光奏鸣曲|月光\s*sonata|月光/i,  foreign:true, title:'Piano Sonata No.14, Op.27 No.2', comp:'Ludwig van Beethoven', key:'c#m', genre:'Sonata' },
+  { hit:/致爱丽丝|fur\s*elise/i,     foreign:true, title:'Für Elise, WoO 59', comp:'Ludwig van Beethoven', key:'am', genre:'Bagatelle' },
+  { hit:/悲怆奏鸣曲|pathetique/i,    foreign:true, title:'Piano Sonata No.8, Op.13', comp:'Ludwig van Beethoven', key:'cm', genre:'Sonata' },
+  { hit:/英雄波兰舞曲|英雄波洛奈兹/i, foreign:true, title:'Polonaise in A-flat major, Op.53', comp:'Frédéric Chopin', key:'bA', genre:'Polonaise' },
+  { hit:/革命练习曲/i,               foreign:true, title:'Étude in C minor, Op.10 No.12', comp:'Frédéric Chopin', key:'cm', genre:'Étude' },
+  { hit:/夜曲\s*op\.?\s*9\s*no\.?\s*2|op9\s*no2/i, foreign:true, title:'Nocturne in E-flat major, Op.9 No.2', comp:'Frédéric Chopin', key:'bE', genre:'Nocturne' },
+  { hit:/升c小调圆舞曲|圆舞曲.*op\.?\s*64\s*no\.?\s*2/i, foreign:true, title:'Waltz in C-sharp minor, Op.64 No.2', comp:'Frédéric Chopin', key:'c#m', genre:'Waltz' },
+  { hit:/小狗圆舞曲|分钟圆舞曲/i,     foreign:true, title:'Waltz in D-flat major, Op.64 No.1', comp:'Frédéric Chopin', key:'bD', genre:'Waltz' },
+  { hit:/肖邦|chopin/i,              foreign:true, title:'Nocturne in E-flat major, Op.9 No.2', comp:'Frédéric Chopin', key:'bE', genre:'Nocturne' },
+  { hit:/G弦上的咏叹调|g弦咏叹/i,     foreign:true, title:'Air on the G String', comp:'Johann Sebastian Bach', key:'D', genre:'Air' },
+  { hit:/十二平均律/i,               foreign:true, title:'The Well-Tempered Clavier, BWV 846', comp:'Johann Sebastian Bach', key:'C', genre:'Prelude' },
+  { hit:/土耳其进行曲/i,             foreign:true, title:'Rondo alla Turca, K.331', comp:'Wolfgang Amadeus Mozart', key:'am', genre:'Rondo' },
+  { hit:/卡农/i,                     foreign:true, title:'Canon in D', comp:'Johann Pachelbel', key:'D', genre:'Canon' },
+  { hit:/梦幻曲/i,                   foreign:true, title:'Träumerei, Op.15 No.7', comp:'Robert Schumann', key:'F', genre:'Character piece' },
+  { hit:/爱的礼赞/i,                 foreign:true, title:'Salut d\'Amour, Op.12', comp:'Edward Elgar', key:'E', genre:'Salon piece' },
+  { hit:/蓝色多瑙河/i,               foreign:true, title:'An der schönen blauen Donau, Op.314', comp:'Johann Strauss II', key:'D', genre:'Waltz' },
+  { hit:/春之声圆舞曲/i,             foreign:true, title:'Frühlingsstimmen, Op.410', comp:'Johann Strauss II', key:'bB', genre:'Waltz' },
+  { hit:/拉德斯基进行曲/i,           foreign:true, title:'Radetzky March, Op.228', comp:'Johann Strauss I', key:'D', genre:'March' },
+  { hit:/天鹅湖/i,                   foreign:true, title:'Swan Lake, Op.20', comp:'Pyotr Ilyich Tchaikovsky', key:'bm', genre:'Ballet' },
+  { hit:/胡桃夹子/i,                 foreign:true, title:'The Nutcracker, Op.71', comp:'Pyotr Ilyich Tchaikovsky', key:'bB', genre:'Ballet' },
+  { hit:/圣母颂/i,                   foreign:true, title:'Ave Maria', comp:'Franz Schubert', key:'bB', genre:'Sacred song' },
+  { hit:/小夜曲/i,                   foreign:true, title:'Eine kleine Nachtmusik, K.525', comp:'Wolfgang Amadeus Mozart', key:'G', genre:'Serenade' },
+  // --- 中国（曲名/作曲家/类型/乐器一律中文）---
+  { hit:/月亮代表我的心/i,           foreign:false, title:'月亮代表我的心', comp:'汤尼', key:'C', instr:'声乐', genre:'流行歌曲' },
+  { hit:/茉莉花/i,                   foreign:false, title:'茉莉花', comp:'江苏民歌', key:'bE', instr:'声乐', genre:'民歌' },
+  { hit:/二泉映月/i,                 foreign:false, title:'二泉映月', comp:'华彦钧', key:'A', instr:'二胡', genre:'器乐独奏' },
+  { hit:/彩云追月/i,                 foreign:false, title:'彩云追月', comp:'任光', key:'C', instr:'钢琴', genre:'民族管弦乐' },
+  { hit:/牧童短笛/i,                 foreign:false, title:'牧童短笛', comp:'贺绿汀', key:'G', instr:'钢琴', genre:'钢琴曲' },
+  { hit:/春江花月夜/i,               foreign:false, title:'春江花月夜', comp:'古曲', key:'D', instr:'琵琶', genre:'古曲' },
+  { hit:/渔舟唱晚/i,                 foreign:false, title:'渔舟唱晚', comp:'娄树华', key:'G', instr:'古筝', genre:'古曲' },
+  { hit:/高山流水/i,                 foreign:false, title:'高山流水', comp:'古曲', key:'D', instr:'古筝', genre:'古曲' },
+  { hit:/康定情歌/i,                 foreign:false, title:'康定情歌', comp:'四川民歌', key:'F', instr:'声乐', genre:'民歌' },
+  { hit:/在那遥远的地方/i,           foreign:false, title:'在那遥远的地方', comp:'王洛宾', key:'F', instr:'声乐', genre:'民歌' },
+  { hit:/月半小夜曲/i,               foreign:false, title:'月半小夜曲', comp:'河合奈保子', key:'am', instr:'声乐', genre:'流行歌曲' },
+];
+
+// 乐器推断：先看提示词里明说的，再按曲目类型猜
+function inferInstr(text, foreign, title) {
+  const all = text + ' ' + (title || '');
+  for (const it of INSTR) if (it.re.test(all)) return foreign ? it.en : it.cn;
+  return foreign ? 'Piano' : '钢琴';
+}
+
+// 调性显示（Jackson 定的写法，按标准记谱惯例）
+//   升号在字母后 → C# / F# / c#m
+//   降号在字母前 → bB / bE / bbm
+//   无升降号   → C / am
+// 字大小写：大调字母大写（C / bB / F#），小调字母小写 + 末尾 m（am / c#m / bbm）
+function keyLabel(k) {
+  if (!k) return '';
+  const raw = String(k).trim();
+  const p = parseKey(raw);
+  if (!p) return raw;
+  if (p.acc === 'b') return 'b' + (p.minor ? p.letter + 'm' : p.letter.toUpperCase());
+  return (p.minor ? p.letter : p.letter.toUpperCase()) + p.acc + (p.minor ? 'm' : '');
+}
+
+// 乐曲类型兜底推断（曲目库没给 genre 时用）：同样遵守语系规则
+function inferGenre(title, foreign) {
+  const t = title || '';
+  if (!foreign) {
+    if (/民歌|情歌|茉莉花/.test(t)) return '民歌';
+    return '中国作品';
+  }
+  if (/Sonata/i.test(t)) return 'Sonata';
+  if (/Nocturne/i.test(t)) return 'Nocturne';
+  if (/Étude|Etude/i.test(t)) return 'Étude';
+  if (/Waltz/i.test(t)) return 'Waltz';
+  if (/Polonaise/i.test(t)) return 'Polonaise';
+  if (/March/i.test(t)) return 'March';
+  if (/Ballet/i.test(t)) return 'Ballet';
+  if (/Prelude|Fugue/i.test(t)) return 'Prelude';
+  if (/Air/i.test(t)) return 'Air';
+  if (/Canon/i.test(t)) return 'Canon';
+  if (/Serenade/i.test(t)) return 'Serenade';
+  if (/Rondo/i.test(t)) return 'Rondo';
+  return 'Classical';
+}
+
+// 「AI 生成」——真机上是发提示词给模型；这里是本地查表 + 兜底推断
+function aiGenerate(prompt) {
+  const q = (prompt || '').trim();
+  if (!q) return null;
+  for (const k of KNOW) {
+    if (k.hit.test(q)) {
+      return {
+        foreign: k.foreign,
+        title: k.title,
+        composer: k.comp,
+        instr: k.instr || inferInstr(q, k.foreign, k.title),
+        key: k.key || '',
+        genre: k.genre || inferGenre(k.title, k.foreign),
+        note: k.foreign ? '识别为外国作品，按原文生成' : '识别为中国作品，保持中文',
+      };
+    }
+  }
+  // 没命中：当作「AI 也不确定」，返回空，由用户自己写具体些
+  return { unknown: true };
+}
+
+let saved = {};
+try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { saved = {}; }
+let idx = 0;
+try { const v = +localStorage.getItem(KEY + '-idx'); if (v >= 0 && v < ROWS.length) idx = v; } catch (e) {}
+
+// 当前条的临时勾选（还没点「采纳并继续」）
+let draft = new Set();
+// AI 独立页送入的结果，按条号暂存，render() 时合并进候选项
+let aiInjected = {};
+// 被用户勾选「提升为正式建议」的 AI 备选字段（key = "条号|字段名"）
+let promoted = new Set();
+
+// 用户自己填的值：条号 → {字段: 值}。**优先级最高**，压过 AI 与规则。
+let typed = {};
+// 用过的值：字段 → [值, 值…]，最近用的在前。跨会话记住 ——
+// 549 条里「教学」「钢琴」这类值要敲几十遍，敲一次就该一直能用。
+let used = {};
+try { used = JSON.parse(localStorage.getItem(KEY + '-used') || '{}'); } catch (e) { used = {}; }
+const USED_CAP = 8;
+
+// 旧存档是「字段数组」（只记勾了哪些），新存档是「字段 → 值」。
+// 用户设备上可能躺着旧格式，进度不能丢：值回不来的先留空串，
+// 导出时按当时的建议值重算（规则值重算一模一样，只有 AI/自填的会退化）。
+for (const fn of Object.keys(saved)) {
+  if (Array.isArray(saved[fn])) {
+    const o = {};
+    saved[fn].forEach(k => { o[k] = ''; });
+    saved[fn] = o;
+  }
+}
+
+function rememberUsed(k, v) {
+  const s = (v || '').trim();
+  if (!s) return;
+  const list = (used[k] || []).filter(x => x !== s);
+  list.unshift(s);
+  used[k] = list.slice(0, USED_CAP);
+  persist();
+}
+
+function entryOf(i) {
+  const r = ROWS[i];
+  const { p, ov } = propose(r);
+  // AI 独立页送进来的结果覆盖规则给出的建议（AI 更权威）
+  const ai = aiInjected[i];
+  const aiAlt = {};
+  if (ai) {
+    for (const k of Object.keys(ai)) {
+      if (ai[k] == null || ai[k] === '') continue;
+      // 乐曲类型例外：原值若是用户自己的分类（如「教学」），
+      // 与曲式名（如 Sonata）语义不冲突，不当作覆盖，只在为空时补。
+      // 但 AI 的值仍记进 aiAlt，界面上标成「备选」让用户自己决定；
+      // 用户勾选后（promoted）才提升为正式建议。
+      if (k === 'genre' && r.genre && r.genre.trim()) {
+        if (ai[k] === r.genre) continue;
+        if (promoted.has(i + '|' + k)) { ov[k] = r.genre; p[k] = ai[k]; }
+        else aiAlt[k] = ai[k];
+        continue;
+      }
+      if (p[k] != null && p[k] !== ai[k]) ov[k] = p[k];
+      p[k] = ai[k];
+    }
+  }
+  // 存档里已采纳的值要回填：翻回旧条时屏幕上必须是**当时存进去的那个值**，
+  // 不能显示成「重新算出来的建议」—— 否则屏幕上一个样、导出又一个样。
+  // 空串是旧存档迁过来的，值已经没了，跳过（让下面的重算值顶上）。
+  const sv = saved[r.fileName];
+  // 数组是旧格式（只记字段名），没有值可回填 —— 跳过，让重算的建议值顶上
+  if (sv && !Array.isArray(sv)) for (const k of Object.keys(sv)) if (sv[k]) p[k] = sv[k];
+  // 用户自填：最后压上去，谁也盖不过它
+  const tp = typed[i];
+  if (tp) {
+    for (const k of Object.keys(tp)) {
+      const v = tp[k];
+      if (v == null || v === '') continue;
+      p[k] = v;
+      delete aiAlt[k];          // 自己写了值，「备选」提示就没意义了
+    }
+  }
+  return { r, p, ov, ai: !!ai, aiAlt };
+}
+function hasChange(e) {
+  return FIELDS.some(f => e.p[f.k] != null);
+}
+function persist() {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(saved));
+    localStorage.setItem(KEY + '-idx', String(idx));
+    localStorage.setItem(KEY + '-used', JSON.stringify(used));
+  } catch (e) {}
+}
+
+const el = id => document.getElementById(id);
+
+function render() {
+  const e = entryOf(idx);
+  const r = e.r;
+  el('where').textContent = '第 ' + (idx + 1) + ' / ' + ROWS.length + ' 条';
+  el('meta').textContent = '已存 ' + Object.keys(saved).length;
+  el('barfill').style.width = ((idx + 1) / ROWS.length * 100).toFixed(1) + '%';
+  el('fname').textContent = r.fileName;
+
+  const changed = hasChange(e);
+  const box = el('fields');
+  box.innerHTML = '';
+
+  FIELDS.forEach(f => {
+    const next = e.p[f.k];
+    const cur = f.k === 'key' ? '' : r[f.k];
+    // AI 给了值但因「不覆盖」被挡下的字段，单独标出来（如 乐曲类型 原值「教学」）
+    const alt = (e.aiAlt && e.aiAlt[f.k]) || null;
+    const stored = saved[r.fileName];
+    const takenNow = draft.has(f.k) || (stored && stored[f.k] != null);
+    const isOv = !!(next != null && cur && cur.trim());
+    const mine = (typed[idx] || {})[f.k] || '';
+
+    const row = document.createElement('div');
+    row.className = 'f';
+
+    const lab = document.createElement('div');
+    lab.className = 'flabel';
+    lab.textContent = f.cn;
+    row.appendChild(lab);
+
+    const body = document.createElement('div');
+    body.className = 'fbody';
+
+    if (next == null) {
+      const s = document.createElement('div');
+      s.className = 'plain';
+      s.textContent = (cur && cur.trim()) ? cur : '（空）';
+      body.appendChild(s);
+      if (alt) {
+        // 原值保留，同时把 AI 给的备选亮出来
+        const a = document.createElement('div');
+        a.className = 'new';
+        a.textContent = alt;
+        const t = document.createElement('span');
+        t.className = 'tag';
+        t.textContent = '备选';
+        a.appendChild(t);
+        body.appendChild(a);
+        const h = document.createElement('div');
+        h.className = 'none';
+        h.textContent = 'AI 建议改成这个，原值会保留';
+        body.appendChild(h);
+      } else {
+        const n = document.createElement('div');
+        n.className = 'none';
+        n.textContent = '无建议';
+        body.appendChild(n);
+      }
+    } else {
+      if (cur && cur.trim()) {
+        const o = document.createElement('div');
+        o.className = 'old';
+        o.textContent = cur;
+        body.appendChild(o);
+      }
+      const nv = document.createElement('div');
+      nv.className = 'new';
+      nv.textContent = next;
+      if (isOv) {
+        const b = document.createElement('span');
+        b.className = 'badge';
+        b.textContent = '覆盖';
+        nv.appendChild(b);
+      }
+      if (mine && mine === next) {
+        const u = document.createElement('span');
+        u.className = 'utag';
+        u.textContent = '自填';
+        nv.appendChild(u);
+      }
+      body.appendChild(nv);
+    }
+
+    // ---- 自己填 ----
+    // 每个字段都能写，包括规则给不出、AI 也永不碰的「标签」「来源」。
+    // 不然这个叫「标签工具」的页面，标签一列永远是死的。
+    const op = document.createElement('div');
+    op.className = 'fopen';
+    op.textContent = mine ? '✎ 改自己填的值' : '＋ 自己填';
+    body.appendChild(op);
+
+    const ed = document.createElement('div');
+    ed.className = 'fedit';
+    const inp = document.createElement('input');
+    inp.className = 'finput';
+    inp.placeholder = '写' + f.cn + '，回车确定';
+    ed.appendChild(inp);
+
+    const list = used[f.k] || [];
+    if (list.length) {
+      const tt = document.createElement('div');
+      tt.className = 'chiptt';
+      tt.textContent = '用过的值';
+      ed.appendChild(tt);
+      const cs = document.createElement('div');
+      cs.className = 'chips';
+      list.forEach(v => {
+        const chip = document.createElement('div');
+        chip.className = 'chip';
+        chip.textContent = v;
+        chip.onclick = () => { inp.value = v; };
+        cs.appendChild(chip);
+      });
+      ed.appendChild(cs);
+    }
+
+    const acts = document.createElement('div');
+    acts.className = 'edacts';
+    const bCancel = document.createElement('div');
+    bCancel.className = 'mini';
+    bCancel.textContent = mine ? '撤回自填' : '收起';
+    const bSet = document.createElement('div');
+    bSet.className = 'mini pri';
+    bSet.textContent = '用这个值';
+    acts.appendChild(bCancel);
+    acts.appendChild(bSet);
+    ed.appendChild(acts);
+    body.appendChild(ed);
+
+    function dropTyped() {
+      if (typed[idx]) delete typed[idx][f.k];
+      draft.delete(f.k);
+      if (saved[r.fileName]) {
+        delete saved[r.fileName][f.k];
+        if (!Object.keys(saved[r.fileName]).length) delete saved[r.fileName];
+        persist();
+      }
+    }
+    op.onclick = () => {
+      ed.className = 'fedit on';
+      op.style.display = 'none';
+      inp.value = mine || (next != null ? next : (f.k === 'key' ? '' : (cur || '')));
+      inp.focus();
+    };
+    bCancel.onclick = () => { if (mine) dropTyped(); render(); };
+    bSet.onclick = () => {
+      const s = (inp.value || '').trim();
+      if (!s) { if (mine) dropTyped(); render(); return; }
+      if (!typed[idx]) typed[idx] = {};
+      typed[idx][f.k] = s;
+      draft.add(f.k);                 // 自己写的＝已经决定要它，不用再勾一次
+      rememberUsed(f.k, s);
+      // 立刻落盘：翻页跑掉也不丢。导出读的就是这一份。
+      if (!saved[r.fileName]) saved[r.fileName] = {};
+      saved[r.fileName][f.k] = s;
+      persist();
+      render();
+    };
+    inp.onkeydown = ev => {
+      ev.stopPropagation();           // 别让空格/方向键触发翻页
+      if (ev.key === 'Enter') { ev.preventDefault(); bSet.onclick(); }
+      else if (ev.key === 'Escape') render();
+    };
+
+    row.appendChild(body);
+
+    if (next != null || alt != null) {
+      const c = document.createElement('div');
+      c.className = 'chk' + (takenNow ? ' on' : '');
+      c.textContent = takenNow ? '✓' : '';
+      c.onclick = () => {
+        const pk = idx + '|' + f.k;
+        if (takenNow) {
+          draft.delete(f.k);
+          promoted.delete(pk);
+        } else {
+          draft.add(f.k);
+          // 勾选「备选」＝提升为正式建议，原值记为被覆盖
+          if (next == null && alt != null) promoted.add(pk);
+        }
+        // 取消已存档的采纳：连值一起从存档里抹掉
+        if (stored && stored[f.k] != null) {
+          if (typed[idx]) delete typed[idx][f.k];
+          delete stored[f.k];
+          if (!Object.keys(stored).length) delete saved[r.fileName];
+          persist();
+        }
+        render();
+      };
+      row.appendChild(c);
+    }
+    box.appendChild(row);
+  });
+
+  if (!changed) {
+    const tip = document.createElement('div');
+    tip.className = 'none';
+    tip.style.padding = '10px 0';
+    tip.textContent = '这一条无需改动，直接翻下一条即可';
+    box.appendChild(tip);
+  }
+}
+
+function commitAndNext() {
+  const e = entryOf(idx);
+  const r = e.r;
+  // 存档存的是「字段 → 值」。以前只存字段名，值是翻页时重算的 ——
+  // 一旦允许用户自己写，重算就对不上了（AI 给的、手打的都算不出来）。
+  const picks = {};
+  FIELDS.forEach(f => { if (e.p[f.k] != null && draft.has(f.k)) picks[f.k] = e.p[f.k]; });
+  if (Object.keys(picks).length) saved[r.fileName] = picks; else delete saved[r.fileName];
+  draft = new Set();
+  persist();
+  if (idx < ROWS.length - 1) idx++;
+  aiResult = null;                  // AI 结果属于上一条，翻页即清
+  el('aiprompt').value = '';
+  el('aistate').textContent = '';
+  render();
+  renderAi();
+}
+
+function go(delta) {
+  draft = new Set();
+  idx = Math.max(0, Math.min(ROWS.length - 1, idx + delta));
+  persist();
+  aiResult = null;
+  el('aiprompt').value = '';
+  el('aistate').textContent = '';
+  render();
+  renderAi();
+}
+
+function jumpUnhandled() {
+  for (let i = idx + 1; i < ROWS.length; i++) {
+    const e = entryOf(i);
+    if (hasChange(e) && !saved[e.r.fileName]) { idx = i; draft = new Set(); persist(); render(); return; }
+  }
+  for (let i = 0; i < idx; i++) {
+    const e = entryOf(i);
+    if (hasChange(e) && !saved[e.r.fileName]) { idx = i; draft = new Set(); persist(); render(); return; }
+  }
+}
+
+// 调性（keysf/keymi）换算：与 Kotlin domain/csvfix/ScoreKey 同一套语义。
+// keysf = -7..7 升降号个数（负=降），keymi = 0 大调 / 1 小调。
+// 小调用其关系大调（上方小三度）的调号。
+// 显示写法：字母在前、升降号在后（C / bB / F# / c#m / am / bbm）
+const MAJOR_SF = {
+  'C': 0, 'G': 1, 'D': 2, 'A': 3, 'E': 4, 'B': 5, 'F#': 6, 'C#': 7,
+  'F': -1, 'bB': -2, 'bE': -3, 'bA': -4, 'bD': -5, 'bG': -6, 'bC': -7,
+};
+// 小调 → 关系大调（小调根音写法：字母小写 + 升降号，如 c# / bb / eb）
+// 关系大调 = 小调上方小三度。降E小调 → 降G大调(-6)，降A小调 → 降C大调(-7)。
+const MINOR_TO_MAJOR = {
+  'a': 'C', 'e': 'G', 'b': 'D', 'f#': 'A', 'c#': 'E', 'g#': 'B', 'd#': 'F#', 'a#': 'C#',
+  'd': 'F', 'g': 'bB', 'c': 'bE', 'f': 'bA', 'bb': 'bD', 'eb': 'bG', 'ab': 'bC',
+};
+
+// 把显示写法拆开。显示规则：降号在前（bB / bE / bbm），升号在后（F# / c#m）。
+// 两种写法并存：
+//   降号在字母前 → bB / bE / bbm（bbm = 降B小调）
+//   升号在字母后 → F# / C# / c#m ；也可写成字母 + b 表示降（ebm = 降E小调）
+function parseKey(k) {
+  const s = String(k).trim();
+  let m = /^b([a-gA-G])(m?)$/.exec(s);        // bB / bE / bb(小调)
+  if (m) {
+    const l = m[1].toLowerCase();
+    return { letter: l, acc: 'b', minor: m[2] === 'm' };
+  }
+  m = /^([a-gA-G])([#b]?)(m?)$/.exec(s);      // C / F# / c#m / am / ebm
+  if (m) return { letter: m[1].toLowerCase(), acc: m[2], minor: m[3] === 'm' };
+  return null;
+}
+
+// 拼成「小调查表用的根音写法」：字母小写 + 升降号（c# / bb / e / b）
+function minorRoot(p) { return p.letter + p.acc; }
+// 拼成「大调查表用的根音写法」：降号在前、升号在后，字母大写（bB / F# / C）
+function majorRoot(p) {
+  if (p.acc === 'b') return 'b' + p.letter.toUpperCase();
+  if (p.acc === '#') return p.letter.toUpperCase() + '#';
+  return p.letter.toUpperCase();
+}
+
+function keyToSfMi(k) {
+  if (!k) return null;
+  const p = parseKey(k);
+  if (!p) return null;
+  if (p.minor) {
+    const major = MINOR_TO_MAJOR[minorRoot(p)];
+    if (major == null || MAJOR_SF[major] == null) return null;
+    return { keysf: MAJOR_SF[major], keymi: 1 };
+  }
+  const maj = majorRoot(p);
+  if (MAJOR_SF[maj] == null) return null;
+  return { keysf: MAJOR_SF[maj], keymi: 0 };
+}
+
+// 拆出「算文本」这一步：下载只是把这段文本丢给浏览器，
+// 自动化测试要断言内容，只能从函数返回值拿，不能从 Blob 里捞。
+function buildCsv() {
+  const lines = [HEADER.join(',')];
+  ROWS.forEach((r, i) => {
+    // 用 entryOf，把 AI 送进来的候选项、存档回填值、手填值都合并上；
+    // 不能直接用 propose，否则这些值导不出去（第 5、6 列的教训）
+    const { p } = entryOf(i);
+    const take = saved[r.fileName] || {};
+    // 旧存档是数组（只记勾了哪些字段）；值是空的，导出时按重算出的建议值写
+    const took = k => Array.isArray(take) ? take.indexOf(k) >= 0 : take[k] != null;
+    const cells = new Array(HEADER.length).fill('');
+    cells[0] = r.fileName;
+    cells[1] = took('title') ? (p.title ?? r.title) : r.title;
+    cells[4] = took('composer') ? (p.composer ?? r.composer) : r.composer;
+    cells[5] = took('genre') ? (p.genre ?? r.genre) : r.genre;
+    cells[6] = took('tag') ? (p.tag ?? r.tag) : r.tag;
+    cells[7] = took('label') ? (p.label ?? r.label) : r.label;
+    cells[8] = took('ref') ? (p.ref ?? r.ref) : r.ref;
+    // 调性：采纳了才写，否则保持 CSV 原值
+    if (took('key') && p.key) {
+      const km = keyToSfMi(p.key);
+      if (km) { cells[13] = String(km.keysf); cells[14] = String(km.keymi); }
+    }
+    lines.push(cells.map(c => /[",\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c).join(','));
+  });
+  return lines.join('\r\n');
+}
+
+function exportCsv() {
+  const blob = new Blob(['\ufeff' + buildCsv()], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'scores-fixed.csv';
+  a.click();
+}
+
+el('prev').onclick = () => go(-1);
+el('next').onclick = commitAndNext;
+el('jump').onclick = jumpUnhandled;
+el('export').onclick = exportCsv;
+el('reset').onclick = () => {
+  // 只清进度，**不清「用过的值」** —— 那是攒出来的个人词表，清掉等于白敲。
+  saved = {}; typed = {}; idx = 0; draft = new Set(); persist(); render();
+};
+document.addEventListener('keydown', ev => {
+  if (ev.key === 'ArrowLeft') go(-1);
+  else if (ev.key === 'ArrowRight') go(1);
+  else if (ev.key === ' ') { ev.preventDefault(); commitAndNext(); }
+});
+
+// ================= 顶部 AI 生成条 =================
+// 与逐条页同屏常驻：写提示词 → 生成 → 结果直接铺成当前条的候选项。
+// 不再有「进入/返回」这一步，所以不需要记住来源条 —— 永远是当前条。
+const AI_KEY = 'fix-demo-ai-v2';
+let aiResult = null;       // 最近一次生成结果
+let aiBusy = false;
+
+function aiFieldRows(r) {
+  return [
+    ['曲名',     r.title],
+    ['作曲家',   r.composer],
+    ['乐器',     r.instr],
+    ['乐曲类型', r.genre],
+    ['调性',     keyLabel(r.key)],
+  ];
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+// 判断 AI 给的曲名跟这一条原本的曲名「像不像」。
+// 不像就说明提示词跟这条对不上，硬写会把数据改烂 —— 必须拦一下。
+//
+// 原值要先跑一遍 cleanTitle（标题清洗规则），库里存的往往是 `《月光》_pdf`
+// 这种从文件名来的脏串，AI 回的却是干净的「月光奏鸣曲」。
+// 不先清洗就会拿「月光pdf」去跟「月光奏鸣曲」比，怎么都算不上相关，
+// 于是每一条正常的都可能被标成「对不上」—— 那道闸直接废掉。
+// 这也跟界面一致：用户看到的就是清洗后的标题。
+//
+// 清洗只对原值做。AI 那侧是刚生成的，本就该是干净名；反过来清洗等于替它兜底，
+// 可能把「它其实答错了」这件事抹掉。
+function looksRelated(originalTitle, aiTitle) {
+  const clean = s => (s || '').toLowerCase().replace(/[^\u4e00-\u9fa5a-z0-9]/g, '');
+  const a = clean(cleanTitle(originalTitle)), b = clean(aiTitle);
+  if (!a || !b) return true;              // 原来没曲名，无从比较，放行
+  if (a.includes(b) || b.includes(a)) return true;
+  // 有连续 3 个中文/字母相同片段就算相关（中英混写时靠这个兜）
+  for (let i = 0; i + 3 <= a.length; i++) if (b.includes(a.slice(i, i + 3))) return true;
+  for (let i = 0; i + 3 <= b.length; i++) if (a.includes(b.slice(i, i + 3))) return true;
+  return false;
+}
+
+function renderAi() {
+  const p = el('aipanel');
+  const btn = el('aigo');
+
+  btn.textContent = aiBusy ? '…' : '生成';
+  btn.className = 'aigo' + (aiBusy ? ' busy' : '');
+
+  if (!aiResult) { p.className = 'aiout'; p.innerHTML = ''; return; }
+  p.className = 'aiout on';
+
+  if (aiResult.unknown) {
+    p.innerHTML = '<div class="ainote warn">没认出这首曲子。曲名写全一点，或补上作曲家和作品号再试。</div>'
+      + '<div class="aiacts"><div class="aimini" id="aicopy">复制不了</div></div>';
+    return;
+  }
+
+  const orig = ROWS[idx].title;
+  const mismatch = !looksRelated(orig, aiResult.title);
+
+  let html = '';
+  if (mismatch) {
+    html += '<div class="ainote warn">生成的是「' + esc(aiResult.title) + '」，但这一条原本叫「'
+          + esc(orig) + '」。对不上就别存，会把这条改坏。</div>';
+  } else {
+    html += '<div class="ainote">' + esc(aiResult.note) + '</div>';
+  }
+  for (const [k, v] of aiFieldRows(aiResult)) {
+    // 空字段**整行不画**，而不是画一行「（未给出）」。
+    //
+    // 原先五行全画，结果小模型只回两三个字段时，屏幕上是三行灰字「（未给出）」，
+    // 看着像功能坏了。而「没给」本来就是常态（不确定就留空是明确要求），
+    // 常态不该占位置 —— 剩下的行反而一眼看得出它认出了什么。
+    // 一行都没给的情况由上面的 aiResult.unknown 分支接管。
+    if (!v) continue;
+    html += '<div class="r"><div class="k">' + k + '</div><div class="v">'
+          + esc(v) + '</div></div>';
+  }
+  html += '<div class="aiacts">'
+        + '<div class="aimini" id="aicopy">复制</div>'
+        + '<div class="aimini pri" id="aistore">填入本条</div>'
+        + '</div>';
+  p.innerHTML = html;
+
+  el('aicopy').onclick = () => {
+    const s = aiFieldRows(aiResult).map(([k, v]) => k + '：' + (v || '')).join('\n');
+    if (navigator.clipboard) navigator.clipboard.writeText(s);
+    el('aistate').textContent = '已复制';
+    setTimeout(() => { if (el('aistate').textContent === '已复制') el('aistate').textContent = ''; }, 1400);
+  };
+
+  // 填入本条：结果进当前条的候选项，仍要用户逐字段勾选才采纳
+  el('aistore').onclick = () => {
+    aiInjected[idx] = {
+      title: aiResult.title, composer: aiResult.composer, tag: aiResult.instr,
+      genre: aiResult.genre, key: aiResult.key,
+    };
+    draft = new Set(['title', 'composer', 'tag', 'genre', 'key']);
+    persist();
+    render();
+    el('aistate').textContent = '已填入，下面勾选后「采纳并继续」';
+  };
+}
+
+el('aigo').onclick = () => {
+  const q = el('aiprompt').value;
+  if (!q.trim()) { el('aistate').textContent = '先写点什么'; el('aistate').className = 'aihint err'; return; }
+  aiBusy = true;
+  el('aistate').textContent = '';
+  el('aistate').className = 'aihint';
+  renderAi();
+  setTimeout(() => {
+    aiResult = aiGenerate(q);
+    aiBusy = false;
+    try { localStorage.setItem(AI_KEY, JSON.stringify({ prompt: q, result: aiResult })); } catch (e) {}
+    renderAi();
+  }, 260);
+};
+
+el('aiprompt').addEventListener('keydown', ev => {
+  if (ev.key === 'Enter') { ev.preventDefault(); el('aigo').onclick(); }
+  ev.stopPropagation();          // 别让空格/方向键触发翻页
+});
+
+renderAi();
+
+render();
+</script>
+</body>
+</html>
