@@ -59,6 +59,64 @@ internal class AndroidFileBridge(private val context: Context) : FileBridge {
     override fun coverCacheBytes(): Long = CoverRenderer.cacheBytes().toLong()
 
     override fun clearCoverCache(): Long = CoverRenderer.evictAll().toLong()
+
+    // ---------------------------------------------------------- 校对存档
+    //
+    // 落 `filesDir/fix-store.json`（不是 `scores/`，它不是乐谱文件，
+    // 混在一起会让「导入与存储」那个统计把存档也算进去）。
+    // 所有异常一律吃掉：存档是纯附加信息，写不进去最坏就是下次不接着翻，
+    // 不该让一次磁盘写失败把整个校对页打断。
+
+    override fun readFixStore(): String? = runCatching {
+        val f = java.io.File(context.filesDir, FIX_STORE_NAME)
+        if (!f.exists()) null else f.readText(Charsets.UTF_8)
+    }.getOrNull()
+
+    override fun writeFixStore(json: String): Boolean = runCatching {
+        val f = java.io.File(context.filesDir, FIX_STORE_NAME)
+        f.writeText(json, Charsets.UTF_8)
+        true
+    }.getOrDefault(false)
+
+    override fun clearFixStore(): Boolean = runCatching {
+        val f = java.io.File(context.filesDir, FIX_STORE_NAME)
+        !f.exists() || f.delete()
+    }.getOrDefault(false)
+
+    // ---------------------------------------------------------- 网盘
+
+    override fun netdiskCacheDir(): String = runCatching {
+        java.io.File(context.filesDir, NETDISK_CACHE_DIR).apply { mkdirs() }.absolutePath
+    }.getOrDefault(java.io.File(context.filesDir, NETDISK_CACHE_DIR).absolutePath)
+
+    override fun readNetdiskConfig(): String? = runCatching {
+        val f = java.io.File(context.filesDir, NETDISK_CONFIG_NAME)
+        if (!f.exists()) null else f.readText(Charsets.UTF_8)
+    }.getOrNull()
+
+    override fun writeNetdiskConfig(json: String): Boolean = runCatching {
+        java.io.File(context.filesDir, NETDISK_CONFIG_NAME).writeText(json, Charsets.UTF_8)
+        true
+    }.getOrDefault(false)
+
+    // ---------------------------------------------------------- 乐谱库存档
+
+    override fun readLibraryJson(): String? = runCatching {
+        val f = java.io.File(context.filesDir, LIBRARY_NAME)
+        if (!f.exists()) null else f.readText(Charsets.UTF_8)
+    }.getOrNull()
+
+    override fun writeLibraryJson(json: String): Boolean = runCatching {
+        java.io.File(context.filesDir, LIBRARY_NAME).writeText(json, Charsets.UTF_8)
+        true
+    }.getOrDefault(false)
+
+    private companion object {
+        const val FIX_STORE_NAME = "fix-store.json"
+        const val NETDISK_CONFIG_NAME = "netdisk.json"
+        const val NETDISK_CACHE_DIR = "netdisk"
+        const val LIBRARY_NAME = "library.json"
+    }
 }
 
 /**

@@ -314,8 +314,14 @@ class CsvFixEngineTest {
 
     @Test
     fun `AI_FIELDS 含调性字段`() {
-        assertTrue(com.example.scoreapp.domain.csvfix.AiFill.AI_FIELDS.size >= 6)
+        // 字段数刻意收窄到 **5**：曲名 / 作曲家 / 乐器 / 乐曲类型 / 调性。
+        // 标签(Labels) 与 来源(Reference) 是用户自己的分类体系，AI 一律不碰 ——
+        // 让模型去猜「这份谱该归到哪个标签」只会污染他自己的分类。
+        assertEquals(5, com.example.scoreapp.domain.csvfix.AiFill.AI_FIELDS.size)
         assertTrue(com.example.scoreapp.domain.csvfix.AiFill.AI_FIELDS.any { it.key == "key" })
+        // 不碰的字段必须真的不在表里
+        assertFalse(com.example.scoreapp.domain.csvfix.AiFill.AI_FIELDS.any { it.key == "labels" })
+        assertFalse(com.example.scoreapp.domain.csvfix.AiFill.AI_FIELDS.any { it.key == "ref" })
         assertTrue(com.example.scoreapp.domain.csvfix.AiFill.DEFAULT_PROMPT.length > 20)
     }
 
@@ -431,5 +437,137 @@ class CsvFixEngineTest {
             .parseReply("Let me think about this. The first one already has a composer.", F)
         assertEquals(true, rr.error != null)
         assertEquals(0, rr.items.size)
+    }
+
+    // ------------------------------------------------ 单条生成（顶部 AI 条那条路）
+    //
+    // 这一段原先**零覆盖**：parseOneReply / buildOneMessage 从没被测过。
+    // 而真机上双子座 flash-lite 的怪脾气全是这条路上的，值得锁死。
+
+    @Test
+    fun `单条生成认不出时回空数组就是没认出`() {
+        // 提示词明确要求「认不出就回 []」。它必须走「没认出这首曲子」那条提示，
+        // **不能**被当成解析失败 —— 否则用户看到的是「没从回答里解析出可用内容」，
+        // 完全猜不到其实是模型老实说不知道。
+        val F = com.example.scoreapp.domain.csvfix.AiFill.ONE_FIELDS
+        val pr = com.example.scoreapp.domain.csvfix.AiFill.parseReply("[]", F)
+        // 解析本身不报错：空数组是**合法回答**，不是解析失败。
+        // 这个区分是必须的 —— 压成一个 null 之后，界面会把
+        // 「模型老实说不知道」显示成「没从回答里解析出可用内容」，
+        // 用户于是去改接口地址、换模型，白折腾。
+        assertEquals(null, pr.error, "空数组是合法回答，不该算解析失败")
+        assertEquals(0, pr.items.size)
+
+        val one = com.example.scoreapp.domain.csvfix.AiFill.parseOneReply("[]")
+        assertEquals(true, one != null, "空数组要能返回结果对象，不是 null")
+        assertEquals(true, one!!.isBlank, "空结果 → 界面显示「没认出这首曲子」")
+    }
+
+    @Test
+    fun `单条生成只给部分字段时不全判为没认出`() {
+        // 认得出但只确定两三项（真实情况：知道曲名和乐器，调性拿不准）。
+        // 这不是「没认出」，界面该把这几个值照实铺出来。
+        val one = com.example.scoreapp.domain.csvfix.AiFill.parseOneReply(
+            """[{"i":0,"title":"月光奏鸣曲","composer":"","instr":"Piano","genre":"","key":""}]"""
+        )
+        assertEquals(true, one != null)
+        assertEquals(false, one!!.isBlank)
+        assertEquals("月光奏鸣曲", one.title)
+        assertEquals("Piano", one.instrument)
+        assertEquals("", one.key, "空字段就该是空串，不是 null")
+    }
+
+    @Test
+    fun `单条生成只填曲名的形态要能被识别出来`() {
+        // **这条是反过来的**：原先这里写的是「认不出时可以只回曲名其余留空」，
+        // 还断言 `isBlank == false` —— 等于把这个形态**祝福**成了合法回答。
+        // 真机上 gemini-3.8-flash 就照着它干：输入「您花开的样子 合唱」，
+        // 回了一个只填曲名的对象，界面渲染成「识别完成」+ 孤零零一行曲名，
+        // 用户完全分不清是「认出来了但信息少」还是「根本没认出来」。
+        //
+        // 现在这个形态要被【识别出来】并单独标记（`titleOnly`），
+        // 界面据此说「只认出曲名」而不是「识别完成」。
+        val one = com.example.scoreapp.domain.csvfix.AiFill.parseOneReply(
+            """[{"i":0,"title":"您花开的样子","composer":"","instr":"","genre":"","key":""}]"""
+        )
+        assertEquals(true, one != null)
+        // 它不是「全空」——曲名确实有值
+        assertEquals(false, one!!.isBlank)
+        // 但它是「只有曲名」，必须被单独标出来
+        assertEquals(true, one.titleOnly, "四项全空只剩曲名，要能被识别成 titleOnly")
+        assertEquals("您花开的样子", one.title)
+    }
+
+    @Test
+    fun `曲名之外还有别的值时不算只有曲名`() {
+        // 反例：只要曲名以外还有任何一项有值，就不是 titleOnly ——
+        // 那说明模型确实认出了这首曲子，只是信息不全，该照实铺出来。
+        val one = com.example.scoreapp.domain.csvfix.AiFill.parseOneReply(
+            """[{"i":0,"title":"茉莉花","composer":"","instr":"声乐","genre":"","key":""}]"""
+        )
+        assertEquals(true, one != null)
+        assertEquals(false, one!!.titleOnly, "乐器有值就不算「只认出曲名」")
+        assertEquals("声乐", one.instrument)
+    }
+
+    @Test
+    fun `只有曲名的结果不算 isBlank`() {
+        // 这两个状态必须分开，别混：
+        // - isBlank  = 全空 → 「没认出这首曲子」
+        // - titleOnly = 只剩曲名 → 「只认出曲名」
+        // 混成一个的话，只剩曲名会被报成「没认出」，
+        // 用户拿到的那行曲名（虽然信息量低）也被一并丢掉。
+        val one = com.example.scoreapp.domain.csvfix.AiFill.parseOneReply(
+            """[{"i":0,"title":"七月的草原","composer":"","instr":"","genre":"","key":""}]"""
+        )
+        assertEquals(false, one!!.isBlank)
+        assertEquals(true, one.titleOnly)
+    }
+
+    @Test
+    fun `提示词明确禁止只填曲名的那种形态`() {
+        // 第十五轮修「不许省略」时只堵了「认得/不认得」两条岔路，
+        // **漏了中间那条**：模型回了对象、只填曲名。3.8 Flash 走了这条。
+        // 这条测试就是钉住它 —— 提示词必须把这个形态点名禁掉，
+        // 否则下次改提示词又会无声地把它放回来。
+        val p = com.example.scoreapp.domain.csvfix.AiFill.DEFAULT_PROMPT
+        assertEquals(
+            true,
+            p.contains("只填曲名"),
+            "必须点名禁止「只填曲名、其余四项留空」这个形态",
+        )
+        assertEquals(
+            true,
+            p.contains("曲名**不算**") || p.contains("曲名不算"),
+            "必须说清「曲名不算认得这首曲子的证据」——那行字是用户自己敲的",
+        )
+    }
+
+    @Test
+    fun `单条生成的提示词要求认不出就回空数组`() {
+        // 这条约束是踩坑换来的：曾写过「五个键一个都不能少」，
+        // 它跟「不确定就填空」打架，小模型凑不出五个键就整条放弃，
+        // 还从曲名抄一个调性交差。**看起来有用的噪音比明说不知道危险。**
+        val p = com.example.scoreapp.domain.csvfix.AiFill.DEFAULT_PROMPT
+        assertEquals(true, p.contains("空数组"), "认不出必须能直接回 []")
+        assertEquals(true, p.contains("不认得"), "要显式区分认得/不认得两种情形")
+    }
+
+    @Test
+    fun `单条生成答非所问才算解析失败`() {
+        // 与上一条相对：模型吐了一段散文、压根没有 JSON，这才返回 null，
+        // 界面该说「没从回答里解析出可用内容」。两种情形不能并成一种。
+        val one = com.example.scoreapp.domain.csvfix.AiFill
+            .parseOneReply("Let me think about this piece. It might be a folk song from Yunnan.")
+        assertEquals(null, one)
+    }
+
+    @Test
+    fun `单条生成的消息只有一个用户回合`() {
+        val msgs = com.example.scoreapp.domain.csvfix.AiFill.buildOneMessage("月光奏鸣曲")
+        assertEquals(2, msgs.size)
+        assertEquals("system", msgs[0].role)
+        assertEquals("user", msgs[1].role)
+        assertEquals("曲目：月光奏鸣曲", msgs[1].content)
     }
 }

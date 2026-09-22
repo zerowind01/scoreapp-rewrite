@@ -167,6 +167,21 @@ fun MeScreen(state: ScoreAppState, bottomPadding: Dp) {
                     value = "${state.allScores.size} 首",
                     showArrow = true,
                     onClick = { state.openFixFromLibrary() },
+                )            }
+        }
+
+        item { SectionHead("网盘") }
+        item {
+            ListPanel {
+                ListItem(
+                    icon = AppIcons.Layers,
+                    label = "浏览网盘乐谱",
+                    // 右侧这一栏说的是「点进去能不能直接列出目录」，
+                    // 与 AI 设置那行同口径：已配置 / 未配置
+                    value = if (state.netdiskConfig.ready) "已配置" else "未配置",
+                    valueColor = if (state.netdiskConfig.ready) Tokens.PillLive else Tokens.Text3,
+                    showArrow = true,
+                    onClick = { state.openNetdisk() },
                 )
             }
         }
@@ -184,10 +199,14 @@ fun MeScreen(state: ScoreAppState, bottomPadding: Dp) {
                 )
                 ListItem(
                     icon = AppIcons.Sort,
-                    label = "自动识别元数据",
-                    value = if (state.aiOn) "已开启" else "已关闭",
-                    valueColor = if (state.aiOn) Tokens.PillLive else Tokens.Text3,
-                    onClick = { state.toggleAi() },
+                    label = "AI 设置",
+                    // 原先这里是「自动识别元数据」——一个点了只翻转布尔值、
+                    // 没有任何代码读取的假开关。换成真的配置入口后，
+                    // 右侧这一栏显示的是「校对页的『生成』到底能不能跑」。
+                    value = if (state.aiConfig.ready) "已配置" else "未配置",
+                    valueColor = if (state.aiConfig.ready) Tokens.PillLive else Tokens.Text3,
+                    showArrow = true,
+                    onClick = { state.openAiSetup() },
                 )
                 ListItem(
                     icon = AppIcons.Cleaning,

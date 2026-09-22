@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>网盘入库乐谱库 · 交互演示</title>
+<!--
+  这是「网盘乐谱入库乐谱库」的**交互演示**，是这一版功能的权威规格。
+  Compose 侧要跟它逐条对齐（domain/netdisk/ + 新增的曲库持久化 + ui/LibraryScreen）。
+
+  它跟 netdisk-demo.html 的分工：那份是「浏览页」（临时看看、不入库），
+  这份是「入库后的乐谱库首页」——绑定文件夹 → 首页直接看到 → 能编辑元数据。
+
+  Jackson 拍板的四条（别改回去）：
+  1. **只列绑定文件夹当前层的 PDF**，子目录里的一律不进（要更深的目录就单独绑定它）。
+  2. **文件本体在线即开、不长期保留**：点开才下载，缓存仍只留最近 1 份。
+     所以条目上有「已缓存 / 需下载」标记——不写清楚用户会以为点了没反应。
+  3. **进首页自动同步一次**（有绑定且配置就绪时），另有「立即同步」手动键；
+     同步失败/没网时**保留上次列表**并说明，绝不把首页变空白。
+  4. **持久化一起做**：既然要建 library.json，本地导入的谱子和改过的元数据都落盘，
+     重启不丢。
+
+  规格（改回去就是 bug）：
+  0. **网盘与本机分成两个标签页**（顶部「本机 / 网盘」）。
+     不混排：网盘条目要联网才看得到，跟本机条目混在一张列表里会让人分不清
+     哪份能离线打开。同步条 / 绑定行 / 绑定按钮**只在网盘页**出现；
+     **进网盘页才自动同步一次**，停在本机页时不联网。
+  1. 条目的**身份是规范化后的远端路径**（metaKey），不是文件名：
+     不同目录下同名谱子必须各自独立。远端改名的文件视为新条目（旧元数据按路径留着，
+     万一改回来还能用）。
+  2. **用户改过的元数据永不被同步覆盖**。同步只做三件事：加新条目、删消失的条目、
+     更新文件体积。默认元数据只在**首次出现**时生成一次。
+  3. 远端消失的条目从列表移除，但**它的元数据不删**——误删/改名的容错。
+  4. 默认元数据沿用校对页那套占位符：作曲家 佚名 / 类型 未编目 / 乐器 未分类 /
+     时期 未指定 / 难度 — / 来源 网盘；标题由文件名去扩展名而来。
+  5. 元数据**只存本地**，不写回网盘：WebDAV 只能写文件，夸克里的乐谱没有
+     可写元数据的通道，硬写会变成往用户网盘里乱塞文件。
+  6. 同步状态必须说人话：同步中 / 已同步 · 刚刚 / 同步失败，显示的是 N 分钟前的列表。
+-->
+<style>
+  :root{
+    --bg:#F4F4F6; --surface:#fff; --s2:#F1F1F4; --s3:#E9E9EC;
+    --t1:#111113; --t2:#6C6C73; --t3:#A5A5AD; --line:#ECECEF;
+    --accent:#111113; --accentfg:#fff;
+    --blue:#0A72C4; --bluebg:#E7F2FC;
+    --dangerbg:#FDECEC; --dangerfg:#D23A3A;
+    --live:#0D7A4A; --livebg:#E6F4EC;
+    --amber:#8A5A00; --amberbg:#FDF3E2;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  body{
+    margin:0; background:#DFDFE3; color:var(--t1);
+    font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+    display:flex; flex-direction:column; align-items:center; padding:20px 12px 40px; gap:14px;
+  }
+  .phone{width:390px; max-width:100%; background:var(--bg); border-radius:26px; overflow:hidden;
+    box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  .app{display:flex; flex-direction:column; height:720px; position:relative}
+
+  .top{padding:10px 16px 0; background:var(--surface)}
+  .toprow{display:flex; align-items:center; gap:8px}
+  .where{font-size:15px; font-weight:700}
+  .spacer{flex:1}
+  /* 本机 / 网盘 两个标签页 */
+  .tabs{display:flex; align-items:baseline; gap:14px}
+  .tab{font-size:19px; font-weight:700; color:var(--t3); padding-bottom:2px;
+    border-bottom:2px solid transparent}
+  .tab.on{color:var(--t1); border-bottom-color:var(--t1)}
+  .tab:active{opacity:.6}
+  .gear{font-size:11px; color:var(--blue); padding:3px 8px; border-radius:8px; background:var(--bluebg)}
+  .gear:active{opacity:.6}
+
+  /* 同步条：一眼知道库里的网盘条目是哪来的、多久前的 */
+  .sync{display:flex; align-items:center; gap:7px; padding:8px 16px 9px;
+    background:var(--surface); border-bottom:1px solid var(--line)}
+  .sync.bad{background:var(--dangerbg)}
+  .sync.busy{background:var(--amberbg)}
+  .dot{width:7px; height:7px; border-radius:4px; background:var(--t3); flex:none}
+  .dot.on{background:var(--live)}
+  .dot.bad{background:var(--dangerfg)}
+  .dot.busy{background:var(--amber)}
+  .synct{flex:1; min-width:0; font-size:11px; color:var(--t2);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .syncbtn{flex:none; font-size:11px; font-weight:700; color:var(--blue);
+    padding:3px 9px; border-radius:8px; background:var(--bluebg)}
+  .syncbtn:active{opacity:.6}
+
+  .bindrow{display:flex; align-items:center; gap:8px; padding:7px 16px 8px;
+    background:var(--s2); border-bottom:1px solid var(--line); font-size:11px; color:var(--t2)}
+  .bindrow b{color:var(--t1)}
+  .chip{font-size:10.5px; padding:2px 7px; border-radius:7px; background:var(--s3); color:var(--t2);
+    max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .chip:active{opacity:.6}
+
+  .list{flex:1; overflow-y:auto; background:var(--surface)}
+  .sect{padding:9px 16px 5px; font-size:11px; font-weight:700; color:var(--t3); background:var(--s2)}
+  .row{display:flex; align-items:center; gap:10px; padding:10px 16px; border-bottom:1px solid var(--line)}
+  .row:active{background:var(--s2)}
+  .ico{width:34px; height:44px; flex:none; border-radius:5px; background:var(--s3);
+    display:flex; align-items:center; justify-content:center; font-size:10px; color:var(--t2)}
+  .ico.net{background:var(--bluebg); color:var(--blue)}
+  .body{flex:1; min-width:0}
+  .nm{font-size:13px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .sub{font-size:11px; color:var(--t2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .flag{flex:none; font-size:10px; padding:2px 7px; border-radius:7px; background:var(--s3); color:var(--t3)}
+  .flag.on{background:var(--livebg); color:var(--live)}
+  .flag.dl{background:var(--bluebg); color:var(--blue)}
+
+  /* 详情 / 编辑面板：从底部升起 */
+  .sheet{position:absolute; left:0; right:0; bottom:0; background:var(--surface);
+    display:none; flex-direction:column; border-radius:16px 16px 0 0;
+    box-shadow:0 -2px 14px rgba(0,0,0,.12); max-height:86%}
+  .sheet.on{display:flex}
+  .sh{padding:12px 16px 8px; font-size:14px; font-weight:700}
+  .sb{flex:1; overflow-y:auto; padding:0 16px 8px}
+  .fld{margin-bottom:11px}
+  .fldk{font-size:11px; color:var(--t3); margin-bottom:4px}
+  .fldi{width:100%; height:36px; border:1px solid var(--line); border-radius:10px;
+    padding:0 10px; font:13px/1 inherit; background:var(--surface); color:var(--t1)}
+  .fldi:focus{outline:none; border-color:var(--blue)}
+  .sf{display:flex; gap:8px; padding:10px 16px 14px; border-top:1px solid var(--line)}
+  .btn{flex:1; height:40px; border-radius:12px; background:var(--s3); color:var(--t2);
+    display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700}
+  .btn.pri{background:var(--accent); color:var(--accentfg)}
+  .btn:active{opacity:.75}
+
+  /* 绑定选择：模拟 AList 目录树 */
+  .pick{position:absolute; left:0; right:0; top:0; bottom:0; background:var(--bg);
+    display:none; flex-direction:column}
+  .pick.on{display:flex}
+  .prow{display:flex; align-items:center; gap:10px; padding:11px 16px;
+    border-bottom:1px solid var(--line); background:var(--surface)}
+  .prow:active{background:var(--s2)}
+  .pnm{flex:1; min-width:0; font-size:13px; font-weight:700;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .pact{font-size:11px; font-weight:700; color:var(--blue)}
+  .pact.done{color:var(--live)}
+  .phint{padding:8px 16px 10px; font-size:10.5px; color:var(--t3); background:var(--s2)}
+
+  .reader{position:absolute; left:0; right:0; top:0; bottom:0; background:#2B2B2F;
+    display:none; flex-direction:column; align-items:center; justify-content:center; gap:12px; color:#fff}
+  .reader.on{display:flex}
+  .rtitle{font-size:14px; font-weight:700; padding:0 30px; text-align:center}
+  .rmeta{font-size:11px; color:#A9A9B2}
+  .rdetail{font-size:10px; color:#8E8E97; padding:0 30px; text-align:center}
+  .rprog{width:180px; height:3px; border-radius:2px; background:#43434A; overflow:hidden}
+  .rprog>i{display:block; height:3px; background:#fff; width:0}
+  .rclose{margin-top:6px; padding:0 18px; height:34px; border-radius:10px; background:#43434A;
+    display:flex; align-items:center; font-size:12px; font-weight:700}
+  .rclose:active{opacity:.7}
+
+  .hint{width:390px; max-width:100%; font-size:12px; color:#5A5A62; background:#fff;
+    border-radius:12px; padding:12px 14px}
+  .hint b{font-weight:700}
+  .hint ul{margin:6px 0 0; padding-left:18px}
+  .hint li{margin:3px 0}
+</style>
+</head>
+<body>
+
+<div class="phone">
+  <div class="app">
+    <div class="top">
+      <div class="toprow">
+        <div class="tabs">
+          <div class="tab on" id="tab_local">本机</div>
+          <div class="tab" id="tab_net">网盘</div>
+        </div>
+        <div class="spacer"></div>
+        <div class="gear" id="bindbtn">绑定文件夹</div>
+      </div>
+    </div>
+
+    <div class="sync" id="sync">
+      <div class="dot" id="sdot"></div>
+      <div class="synct" id="synct">还没绑定文件夹</div>
+      <div class="syncbtn" id="syncbtn">立即同步</div>
+    </div>
+
+    <div class="bindrow" id="bindrow"></div>
+
+    <div class="list" id="list"></div>
+
+    <!-- 详情 / 编辑 -->
+    <div class="sheet" id="sheet">
+      <div class="sh" id="shtitle">编辑元数据</div>
+      <div class="sb">
+        <div class="fld"><div class="fldk">曲名</div><input class="fldi" id="f_title"></div>
+        <div class="fld"><div class="fldk">作曲家</div><input class="fldi" id="f_composer"></div>
+        <div class="fld"><div class="fldk">乐器</div><input class="fldi" id="f_instrument"></div>
+        <div class="fld"><div class="fldk">类型</div><input class="fldi" id="f_type"></div>
+        <div class="fld"><div class="fldk">时期</div><input class="fldi" id="f_period"></div>
+        <div class="fld"><div class="fldk">难度</div><input class="fldi" id="f_level"></div>
+        <div class="fld"><div class="fldk">来源</div><input class="fldi" id="f_source" disabled></div>
+      </div>
+      <div class="sf">
+        <div class="btn" id="mopen">打开</div>
+        <div class="btn" id="mcancel">取消</div>
+        <div class="btn pri" id="msave">保存</div>
+      </div>
+    </div>
+
+    <!-- 绑定文件夹 -->
+    <div class="pick" id="pick">
+      <div class="top">
+        <div class="toprow">
+          <div class="where">选择要绑定的文件夹</div>
+          <div class="spacer"></div>
+          <div class="gear" id="pclose">完成</div>
+        </div>
+      </div>
+      <div class="phint">只收录这个文件夹<b>当前层</b>的 PDF，子文件夹里的不进（要更深的目录就单独绑它）。</div>
+      <div class="list" id="plist"></div>
+    </div>
+
+    <!-- 阅读器壳 -->
+    <div class="reader" id="reader">
+      <div class="rtitle" id="rtitle"></div>
+      <div class="rmeta" id="rmeta"></div>
+      <div class="rdetail" id="rdetail"></div>
+      <div class="rprog" id="rprog"><i></i></div>
+      <div class="rclose" id="rclose">关闭</div>
+    </div>
+  </div>
+</div>
+
+<div class="hint">
+  <b>网盘入库乐谱库 · 交互演示</b>
+  <ul>
+    <li>顶部两个标签：<b>本机</b>（手机上的谱子，离线可看）与<b>网盘</b>（绑定文件夹里的谱子，点开才下载）。</li>
+    <li>切到「网盘」页 → 点右上「绑定文件夹」勾选目录（可绑多个）→ 自动同步一次。</li>
+    <li>网盘条目点开可以改曲名/作曲家/类型等元数据；本机条目同样能改。</li>
+    <li>改过的元数据<b>不会被同步覆盖</b>——点「立即同步」或切到离线故障再同步，改动仍在。</li>
+    <li>条目右侧标「已缓存 / 需下载」：文件本体不长期保留，点开时才下载，缓存只留最近 1 份。</li>
+    <li>「故障演示」选「同步失败」→ 列表保留上次内容，顶部说明是多久前的；不会把首页清空。</li>
+  </ul>
+  <div style="margin-top:8px">故障演示（原型专用，真机没有）：
+    <select id="fault">
+      <option value="none">正常</option>
+      <option value="offline">同步失败（离线）</option>
+      <option value="dl">下载失败</option>
+    </select>
+  </div>
+</div>
+
+<script>
+// ---------------------------------------------------------------- 常量
+var LIB_KEY = 'scoreapp.library.demo';
+var BOUND_KEY = 'scoreapp.bound.demo';
+/** 自动同步的节流窗口：切走再切回来不该每次都拉一次 */
+var SYNC_THROTTLE_MS = 60000;
+
+// 首页两个标签页：本机 / 网盘。**分开两个页** —— 混在一张列表里时，
+// 网盘条目要联网才看得到，跟本机条目混排会让人分不清哪份能离线打开。
+var TAB_LOCAL = 'local';
+var TAB_NET = 'net';
+var TAB = TAB_LOCAL;
+
+/** 某个标签页该显示哪些条目 */
+function itemsForTab(tab, netItems, localItems) {
+  return tab === TAB_NET ? netItems : localItems;
+}
+
+/** 标签上的文案。**带份数** —— 不写的话用户不知道另一页里有没有东西 */
+function tabTitle(tab, netCount, localCount) {
+  return (tab === TAB_NET ? '网盘 ' : '本机 ') + (tab === TAB_NET ? netCount : localCount);
+}
+
+// ---------------------------------------------------------------- 纯逻辑（测试直接打这些）
+
+function isPdfName(name) {
+  return String(name || '').trim().toLowerCase().endsWith('.pdf');
+}
+
+function normPath(p) {
+  return String(p || '').trim().replace(/\/+$/, '');
+}
+
+function joinPath(base, seg) {
+  return normPath(base) + '/' + seg;
+}
+
+/** 文件名 → 默认标题：去掉扩展名。`拜厄 No.1.pdf` → `拜厄 No.1` */
+function titleFromFileName(name) {
+  var s = String(name || '').trim();
+  var i = s.lastIndexOf('.');
+  return i > 0 ? s.substring(0, i) : s;
+}
+
+/** 条目的身份键。**用规范化远端路径，不是文件名** —— 不同目录下同名谱子要各自独立 */
+function metaKeyOf(remotePath) {
+  return normPath(remotePath);
+}
+
+/**
+ * 首次出现时生成的默认元数据。
+ *
+ * 占位符沿用校对页那套（别自创一套）：作曲家 佚名 / 类型 未编目 / 乐器 未分类 /
+ * 时期 未指定 / 难度 — / 来源 网盘。
+ */
+function defaultMetaOf(file) {
+  return {
+    key: metaKeyOf(file.path),
+    title: titleFromFileName(file.name),
+    composer: '佚名',
+    instrument: '未分类',
+    type: '未编目',
+    period: '未指定',
+    level: '—',
+    source: '网盘',
+    remotePath: normPath(file.path),
+    size: file.size || 0,
+  };
+}
+
+/** 把用户改过的字段盖到条目上。**只盖 meta 里出现的字段**，没改的保持默认 */
+function applyMeta(item, meta) {
+  if (!meta) return item;
+  var out = {};
+  for (var k in item) if (Object.prototype.hasOwnProperty.call(item, k)) out[k] = item[k];
+  var FIELDS = ['title', 'composer', 'instrument', 'type', 'period', 'level'];
+  for (var i = 0; i < FIELDS.length; i++) {
+    var f = FIELDS[i];
+    if (typeof meta[f] === 'string' && meta[f].length) out[f] = meta[f];
+  }
+  return out;
+}
+
+/**
+ * 同步：**以远端为准**，但用户改过的元数据不被覆盖。
+ *
+ * @param prevItems 上一次库里的网盘条目
+ * @param metas     key -> 用户改过的字段（**跨同步永久保留**，条目消失也不删）
+ * @param remote    本次拉到的条目，形如 [{dir, files:[{name,path,size}]}]
+ * @return {items, added, removed}
+ */
+function syncLibrary(prevItems, metas, remote) {
+  var byKey = {};
+  for (var i = 0; i < prevItems.length; i++) byKey[prevItems[i].key] = prevItems[i];
+
+  var out = [];
+  var added = 0;
+  var seen = {};
+  for (var r = 0; r < remote.length; r++) {
+    var files = remote[r].files || [];
+    for (var f = 0; f < files.length; f++) {
+      var file = files[f];
+      if (!isPdfName(file.name)) continue;
+      var key = metaKeyOf(file.path);
+      if (seen[key]) continue;               // 两个绑定目录命中同一份：只进一次
+      seen[key] = 1;
+      var base = byKey[key] || defaultMetaOf(file);
+      base.size = file.size || base.size || 0;      // 体积以远端为准
+      base.remotePath = normPath(file.path);
+      out.push(applyMeta(base, metas[key]));
+      if (!byKey[key]) added++;
+    }
+  }
+  var removed = prevItems.length + added - out.length;
+  return { items: out, added: added, removed: removed < 0 ? 0 : removed };
+}
+
+/** 把编辑面板的草稿存进 metas。空串按「没填」处理，不覆盖默认值 */
+function saveMetaDraft(metas, key, draft) {
+  var next = {};
+  for (var k in metas) if (Object.prototype.hasOwnProperty.call(metas, k)) next[k] = metas[k];
+  var cur = {};
+  for (var k2 in (metas[key] || {})) if (Object.prototype.hasOwnProperty.call(metas[key], k2)) cur[k2] = metas[key][k2];
+  var FIELDS = ['title', 'composer', 'instrument', 'type', 'period', 'level'];
+  for (var i = 0; i < FIELDS.length; i++) {
+    var f = FIELDS[i];
+    var v = String(draft[f] == null ? '' : draft[f]).trim();
+    if (v.length) cur[f] = v;
+    else delete cur[f];
+  }
+  var empty = true;
+  for (var k3 in cur) if (Object.prototype.hasOwnProperty.call(cur, k3)) { empty = false; break; }
+  if (empty) delete next[key];
+  else next[key] = cur;
+  return next;
+}
+
+/** 绑定 / 解绑一个文件夹。返回新数组，不改原数组 */
+function toggleBound(bound, path) {
+  var p = normPath(path);
+  var out = [];
+  var hit = false;
+  for (var i = 0; i < bound.length; i++) {
+    if (normPath(bound[i]) === p) { hit = true; continue; }
+    out.push(bound[i]);
+  }
+  if (!hit) out.push(p);
+  return out;
+}
+
+function isBound(bound, path) {
+  var p = normPath(path);
+  for (var i = 0; i < bound.length; i++) if (normPath(bound[i]) === p) return true;
+  return false;
+}
+
+function boundSummary(bound) {
+  if (!bound.length) return '还没绑定文件夹';
+  return '已绑定 ' + bound.length + ' 个文件夹';
+}
+
+/** 是否要下载。缓存只有最近 1 份，所以除了它都得重下 */
+function needDownload(item, cache) {
+  return !cache[item.key];
+}
+
+/** 「多久之前」的人话。同步失败时要说清列表是什么时候的 */
+
+/**
+ * 进度文案（与 Kotlin `Netdisk.progressLabel` 一一对应）。
+ * 关键是 pct >= 100 单独一支：那时候字节已经收完了，还在说「正在下载…」
+ * 用户就以为卡死 —— Compose 那边 1.22 真机正是这个现象。
+ */
+function dlSize(n) {
+  if (!n || n <= 0) return '';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return Math.floor(n / 1024) + ' KB';
+  var tenths = Math.floor((n * 10) / (1024 * 1024));
+  return Math.floor(tenths / 10) + '.' + (tenths % 10) + ' MB';
+}
+
+function dlBytes(done, total) {
+  if (!done || done <= 0) return '';
+  if (!total || total <= 0) return '  已收 ' + dlSize(done);
+  return '  ' + dlSize(done) + ' / ' + dlSize(total);
+}
+
+function dlLabel(pct, done, total) {
+  // 100 = 字节真的收完了：这时候只报「正在打开」，再摆一遍数字是噪音
+  if (pct >= 100) return '已下载，正在打开…';
+  return (pct < 0 ? '正在下载…' : pct + '%') + dlBytes(done, total);
+}
+
+function formatAgo(ms) {
+  if (!ms) return '从没同步过';
+  var s = Math.floor(ms / 1000);
+  if (s < 60) return '刚刚';
+  var m = Math.floor(s / 60);
+  if (m < 60) return m + ' 分钟前';
+  var h = Math.floor(m / 60);
+  if (h < 24) return h + ' 小时前';
+  return Math.floor(h / 24) + ' 天前';
+}
+
+/**
+ * 同步条文案。三种态必须都能说清：同步中 / 已同步（多久前）/ 失败（显示多久前的列表）。
+ */
+function syncStatusText(state) {
+  if (state.busy) return '正在同步…';
+  if (!state.boundCount) return '还没绑定文件夹，点右上「绑定文件夹」';
+  if (state.error) return '同步失败：' + state.error + '，显示的是' + formatAgo(state.ageMs) + '的列表';
+  if (!state.syncedAt) return '还没同步过，点「立即同步」';
+  return boundSummary(state.boundPaths || []) + ' · 已同步 ' + formatAgo(state.ageMs);
+}
+
+// ---------------------------------------------------------------- 模拟数据
+/** 模拟 AList 上的目录树（原型专用） */
+var TREE = [
+  { path: '/dav/夸克网盘/乐谱', dir: true },
+  { path: '/dav/夸克网盘/乐谱/钢琴', dir: true },
+  { path: '/dav/夸克网盘/伴奏', dir: true },
+  { path: '/dav/本地存储', dir: true },
+];
+
+/** 绑定选择页只列目录 */
+function dirList() { return TREE.slice(); }
+
+/** 拉某个绑定目录**当前层**的条目（原型专用，真机是 PROPFIND） */
+function fetchBoundDir(dir) {
+  var seed = {
+    '/dav/夸克网盘/乐谱': [
+      { name: '月光 Op.27 No.2.pdf', size: 881869 },
+      { name: '拜厄 No.1-20.pdf', size: 245760 },
+      { name: '车尔尼599.pdf', size: 3145728 },
+      { name: '目录.txt', size: 120 },
+    ],
+    '/dav/夸克网盘/伴奏': [
+      { name: '喀秋莎 伴奏.pdf', size: 156000 },
+    ],
+    '/dav/本地存储': [
+      { name: '测试.pdf', size: 10240 },
+    ],
+  };
+  var list = seed[normPath(dir)] || [];
+  var out = [];
+  for (var i = 0; i < list.length; i++) {
+    out.push({
+      name: list[i].name,
+      path: joinPath(dir, list[i].name),
+      size: list[i].size,
+      dir: false,
+    });
+  }
+  return out;
+}
+
+/** 本地谱：模拟手机上原有的三份 */
+var LOCAL = [
+  { key: 'local:1', title: '欢乐颂', composer: '贝多芬', instrument: '钢琴', type: '练习曲', period: '古典', level: '2', source: '本地导入', local: true },
+  { key: 'local:2', title: '小星星', composer: '佚名', instrument: '钢琴', type: '儿歌', period: '未指定', level: '1', source: '本地导入', local: true },
+  { key: 'local:3', title: '天空之城', composer: '久石让', instrument: '钢琴', type: '流行', period: '现代', level: '3', source: '本地导入', local: true },
+];
+
+// ---------------------------------------------------------------- 运行时状态
+var bound = [];
+var libItems = [];
+var metas = {};          // 网盘条目的用户改动：key(远端路径) -> 字段
+var lmetas = {};         // 本机条目的用户改动：key(local:N) -> 字段
+var cache = {};          // 缓存：只留最近 1 份
+var lastSyncedAt = 0;
+var busy = false;
+var lastErr = null;
+var FAULT = 'none';
+var editingKey = null;
+
+function el(id) { return document.getElementById(id); }
+
+function loadState() {
+  try {
+    var raw = window.localStorage.getItem(LIB_KEY);
+    if (raw) {
+      var o = JSON.parse(raw);
+      libItems = o.items || [];
+      metas = o.metas || {};
+      lmetas = o.lmetas || {};
+      lastSyncedAt = o.syncedAt || 0;
+    }
+    var b = window.localStorage.getItem(BOUND_KEY);
+    if (b) bound = JSON.parse(b) || [];
+  } catch (e) { /* 读不回来就用默认值，不炸 */ }
+}
+
+function saveState() {
+  try {
+    window.localStorage.setItem(LIB_KEY, JSON.stringify({
+      items: libItems, metas: metas, lmetas: lmetas, syncedAt: lastSyncedAt,
+    }));
+    window.localStorage.setItem(BOUND_KEY, JSON.stringify(bound));
+  } catch (e) {}
+}
+
+// ---------------------------------------------------------------- 渲染
+function renderSync() {
+  var state = {
+    busy: busy,
+    boundCount: bound.length,
+    boundPaths: bound,
+    error: lastErr,
+    syncedAt: lastSyncedAt,
+    ageMs: lastSyncedAt ? Date.now() - lastSyncedAt : 0,
+  };
+  var text = syncStatusText(state);
+  el('synct').textContent = text;
+  var cls = 'sync' + (busy ? ' busy' : (lastErr ? ' bad' : ''));
+  el('sync').className = cls;
+  el('sdot').className = 'dot' + (busy ? ' busy' : (lastErr ? ' bad' : (bound.length ? ' on' : '')));
+  el('syncbtn').textContent = busy ? '同步中' : '立即同步';
+}
+
+function renderBoundRow() {
+  if (!bound.length) {
+    el('bindrow').innerHTML = '<span>绑定后，文件夹里的 PDF 会直接出现在乐谱库里。</span>';
+    return;
+  }
+  var html = '<b>' + boundSummary(bound) + '</b>';
+  for (var i = 0; i < bound.length; i++) {
+    html += '<span class="chip" data-i="' + i + '">' + shortName(bound[i]) + ' ×</span>';
+  }
+  el('bindrow').innerHTML = html;
+  var chips = el('bindrow').querySelectorAll ? el('bindrow').querySelectorAll('.chip') : [];
+  for (var k = 0; k < chips.length; k++) {
+    (function (node) {
+      node.onclick = function () {
+        bound = toggleBound(bound, bound[parseInt(node.getAttribute('data-i'), 10)]);
+        saveState();
+        renderAll();
+      };
+    })(chips[k]);
+  }
+}
+
+function shortName(p) {
+  var s = normPath(p);
+  var i = s.lastIndexOf('/');
+  return i < 0 ? s : s.substring(i + 1);
+}
+
+function renderTabs() {
+  el('tab_local').className = 'tab' + (TAB === TAB_LOCAL ? ' on' : '');
+  el('tab_net').className = 'tab' + (TAB === TAB_NET ? ' on' : '');
+  el('tab_local').textContent = tabTitle(TAB_LOCAL, libItems.length, LOCAL.length);
+  el('tab_net').textContent = tabTitle(TAB_NET, libItems.length, LOCAL.length);
+}
+
+function renderList() {
+  var html = '';
+  var rows = [];
+  if (TAB === TAB_NET) {
+    html += '<div class="sect">网盘 · ' + libItems.length + ' 份</div>';
+    if (!bound.length) {
+      html += '<div class="phint">还没绑定文件夹。点右上「绑定文件夹」选一个目录，'
+        + '它里面的 PDF 就会出现在这一页。</div>';
+    }
+    for (var i = 0; i < libItems.length; i++) {
+      var it = libItems[i];
+      var need = needDownload(it, cache);
+      html += '<div class="row" data-i="' + i + '">'
+        + '<div class="ico net">网盘</div>'
+        + '<div class="body"><div class="nm">' + it.title + '</div>'
+        + '<div class="sub">' + it.composer + ' · ' + it.type + ' · ' + it.instrument + '</div></div>'
+        + '<div class="flag ' + (need ? 'dl' : 'on') + '">' + (need ? '需下载' : '已缓存') + '</div>'
+        + '</div>';
+    }
+  } else {
+    html += '<div class="sect">本机 · ' + LOCAL.length + ' 份</div>';
+    for (var j = 0; j < LOCAL.length; j++) {
+      var L = applyMeta(LOCAL[j], lmetas[LOCAL[j].key]);
+      html += '<div class="row" data-l="' + j + '">'
+        + '<div class="ico">PDF</div>'
+        + '<div class="body"><div class="nm">' + L.title + '</div>'
+        + '<div class="sub">' + L.composer + ' · ' + L.type + '</div></div>'
+        + '<div class="flag on">已缓存</div></div>';
+    }
+  }
+  el('list').innerHTML = html;
+  var nodes = el('list').querySelectorAll ? el('list').querySelectorAll('.row') : [];
+  for (var k = 0; k < nodes.length; k++) {
+    (function (node) {
+      node.onclick = function () {
+        var iAttr = node.getAttribute('data-i');
+        var lAttr = node.getAttribute('data-l');
+        if (iAttr != null) openSheet(libItems[parseInt(iAttr, 10)]);
+        else if (lAttr != null) openSheet(applyMeta(LOCAL[parseInt(lAttr, 10)], lmetas[LOCAL[parseInt(lAttr, 10)].key]));
+      };
+    })(nodes[k]);
+  }
+  return rows;
+}
+
+function renderAll() {
+  renderTabs();
+  // 同步条 / 绑定行 / 绑定按钮都只跟网盘有关，留在本机页上只会占地方
+  var isNet = TAB === TAB_NET;
+  el('sync').style.display = isNet ? 'flex' : 'none';
+  el('bindrow').style.display = isNet ? 'flex' : 'none';
+  el('bindbtn').style.display = isNet ? 'block' : 'none';
+  renderSync();
+  renderBoundRow();
+  renderList();
+}
+
+// ---------------------------------------------------------------- 同步
+function syncNow(force) {
+  if (busy) return;
+  if (!bound.length) { renderAll(); return; }
+  // 进首页自动拉一次，但节流窗口内不重复拉（切走再切回来不该每次都发请求）
+  if (!force && lastSyncedAt && Date.now() - lastSyncedAt < SYNC_THROTTLE_MS) { renderAll(); return; }
+  busy = true;
+  lastErr = null;
+  renderSync();
+  setTimeout(function () {
+    if (FAULT === 'offline') {
+      busy = false;
+      lastErr = '连不上网盘';
+      renderAll();
+      return;
+    }
+    var remote = [];
+    for (var i = 0; i < bound.length; i++) {
+      remote.push({ dir: bound[i], files: fetchBoundDir(bound[i]) });
+    }
+    var res = syncLibrary(libItems, metas, remote);
+    libItems = res.items;
+    lastSyncedAt = Date.now();
+    lastErr = null;
+    busy = false;
+    saveState();
+    renderAll();
+  }, 700);
+}
+
+// ---------------------------------------------------------------- 详情 / 编辑
+function openSheet(item) {
+  if (!item) return;
+  editingKey = item.key;
+  el('shtitle').textContent = item.title;
+  el('f_title').value = item.title;
+  el('f_composer').value = item.composer;
+  el('f_instrument').value = item.instrument;
+  el('f_type').value = item.type;
+  el('f_period').value = item.period;
+  el('f_level').value = item.level;
+  // 本机谱没有远端路径，来源就写「本机」
+  el('f_source').value = item.remotePath ? ('网盘 · ' + shortName(item.remotePath)) : '本机';
+  el('sheet').className = 'sheet on';
+}
+
+function closeSheet() { el('sheet').className = 'sheet'; editingKey = null; }
+
+function currentItem() {
+  for (var i = 0; i < libItems.length; i++) {
+    if (libItems[i].key === editingKey) return libItems[i];
+  }
+  for (var j = 0; j < LOCAL.length; j++) {
+    if (LOCAL[j].key === editingKey) return applyMeta(LOCAL[j], lmetas[LOCAL[j].key]);
+  }
+  return null;
+}
+
+function saveSheet() {
+  var it = currentItem();
+  if (!it) { closeSheet(); return; }
+  var draft = {
+    title: el('f_title').value,
+    composer: el('f_composer').value,
+    instrument: el('f_instrument').value,
+    type: el('f_type').value,
+    period: el('f_period').value,
+    level: el('f_level').value,
+  };
+  if (it.remotePath) {
+    metas = saveMetaDraft(metas, it.key, draft);
+    for (var i = 0; i < libItems.length; i++) {
+      if (libItems[i].key === it.key) libItems[i] = applyMeta(libItems[i], metas[it.key]);
+    }
+  } else {
+    lmetas = saveMetaDraft(lmetas, it.key, draft);
+  }
+  saveState();
+  closeSheet();
+  renderAll();
+}
+
+// ---------------------------------------------------------------- 打开
+function openFromSheet() {
+  var it = currentItem();
+  if (!it) return;
+  closeSheet();
+  if (!it.remotePath) {
+    // 本机谱：文件就在手机上，没有「下载」这一步
+    showReader(it.title, '本机文件 · 直接打开');
+    el('rprog').style.display = 'none';
+    el('rclose').style.display = 'flex';
+    return;
+  }
+  if (!needDownload(it, cache)) {
+    showReader(it.title, '来自缓存，没有重新下载');
+    return;
+  }
+  showReader(it.title, '正在下载…');
+  setProgress(0);
+  el('rclose').style.display = 'none';
+  var steps = [20, 55, 85, 100];
+  var i = 0;
+  var dtotal = it.size || 0;
+  var timer = setInterval(function () {
+    if (FAULT === 'dl') {
+      clearInterval(timer);
+      el('rmeta').textContent = '下载失败：连不上网盘';
+      el('rdetail').textContent = 'SocketTimeoutException: timeout';
+      el('rprog').style.display = 'none';
+      el('rclose').style.display = 'flex';
+      return;
+    }
+    var p = steps[i++];
+    setProgress(p);
+    el('rmeta').textContent = dlLabel(p, Math.round(dtotal * p / 100), dtotal);
+    if (i >= steps.length) {
+      clearInterval(timer);
+      // 只留最近 1 份：打开新的就把上一份丢掉。
+      // 字节收完 ≠ 已经能看：淘汰旧缓存、真的翻开还要一拍，
+      // 这一拍里界面说的必须是「正在打开」，不能倒回「正在下载…」
+      cache = {};
+      cache[it.key] = true;
+      setTimeout(function () {
+        el('rprog').style.display = 'none';
+        el('rmeta').textContent = '已下载到缓存 · 看完就丢';
+        el('rclose').style.display = 'flex';
+        renderList();
+      }, 420);
+    }
+  }, 220);
+}
+
+function setProgress(p) {
+  el('rprog').style.display = 'flex';
+  if (el('rprog').children && el('rprog').children[0]) el('rprog').children[0].style.width = p + '%';
+}
+
+function showReader(title, meta, detail) {
+  el('reader').className = 'reader on';
+  el('rtitle').textContent = title;
+  el('rmeta').textContent = meta;
+  el('rdetail').textContent = detail || '';
+}
+
+// ---------------------------------------------------------------- 绑定面板
+function renderPicker() {
+  var html = '';
+  var dirs = dirList();
+  for (var i = 0; i < dirs.length; i++) {
+    var on = isBound(bound, dirs[i].path);
+    html += '<div class="prow" data-p="' + dirs[i].path + '">'
+      + '<div class="ico">&#128193;</div>'
+      + '<div class="pnm">' + shortName(dirs[i].path) + '</div>'
+      + '<div class="pact ' + (on ? 'done' : '') + '">' + (on ? '已绑定' : '绑定') + '</div></div>';
+  }
+  el('plist').innerHTML = html;
+  var rows = el('plist').querySelectorAll ? el('plist').querySelectorAll('.prow') : [];
+  for (var k = 0; k < rows.length; k++) {
+    (function (node) {
+      node.onclick = function () {
+        bound = toggleBound(bound, node.getAttribute('data-p'));
+        saveState();
+        renderPicker();
+      };
+    })(rows[k]);
+  }
+}
+
+function openPicker() { renderPicker(); el('pick').className = 'pick on'; }
+function closePicker() { el('pick').className = 'pick'; renderAll(); syncNow(false); }
+
+// ---------------------------------------------------------------- 事件
+/**
+ * 切标签页。
+ *
+ * **进网盘页才自动同步一次**（节流窗口内不重复拉）——
+ * 停在本机页时没有任何理由去联网，那会让「首页」变成要等网络的地方。
+ */
+function switchTab(tab) {
+  TAB = tab;
+  renderAll();
+  if (tab === TAB_NET) syncNow(false);
+}
+
+if (el('bindbtn')) el('bindbtn').onclick = openPicker;
+if (el('tab_local')) el('tab_local').onclick = function () { switchTab(TAB_LOCAL); };
+if (el('tab_net')) el('tab_net').onclick = function () { switchTab(TAB_NET); };
+if (el('pclose')) el('pclose').onclick = closePicker;
+if (el('syncbtn')) el('syncbtn').onclick = function () { syncNow(true); };
+if (el('mcancel')) el('mcancel').onclick = closeSheet;
+if (el('msave')) el('msave').onclick = saveSheet;
+if (el('mopen')) el('mopen').onclick = openFromSheet;
+if (el('rclose')) el('rclose').onclick = function () { el('reader').className = 'reader'; };
+if (el('fault')) el('fault').onchange = function () { FAULT = el('fault').value; };
+
+// ---------------------------------------------------------------- 启动
+loadState();
+renderAll();
+// 停在本机页，不联网。切到「网盘」页时才自动拉一次（见 switchTab）
+</script>
+</body>
+</html>

@@ -73,9 +73,16 @@ try {
     code +
       "\n;return { cleanTitle, looksRelated, parseKey, keyLabel, keyToSfMi," +
       " propose, entryOf, hasChange, buildCsv, ROWS, FIELDS, HEADER," +
+      " aiTitleOnly, promptFromFileName, looksRelated, reprefillPrompt, prefillPrompt," +
+      " searchFallbackEligible, buildSearchQuery, simSearch, applySearchFallback," +
+      " searchOn: () => searchOn, setSearchOn: (v) => { searchOn = !!v; }," +
       " api: {" +
       "  setTyped(i,k,v){ if(!typed[i]) typed[i]={}; typed[i][k]=v; }," +
       "  clearTyped(i){ delete typed[i]; }," +
+      // 「跳到第 i 条并重预填」，模拟翻页对输入框的影响。
+      // 不直接调 go() —— 那还会动 draft/存档，把用例的焦点搅浑；
+      // 这里只想测输入框那一条线。
+      "  reprefillFor(i){ idx=i; reprefillPrompt(); }," +
       "  setAi(i,obj){ aiInjected[i]=obj; }," +
       "  setSaved(fn,obj){ saved[fn]=obj; }," +
       "  savedOf(fn){ return saved[fn]; }," +
@@ -281,6 +288,197 @@ eq("最新填的排在最前", api.usedOf("label")[0], "值11");
 api.rememberUsed("ref", "网络下载");
 eq("词表按字段分开存", api.usedOf("ref").length, 1);
 api.clearUsed();
+
+// ================ 清空字段（空值覆盖，第十四阶段）================
+// 起因：Jackson 的曲库里有值本身是错的，光靠「自填一个新值」治不了 ——
+// 他要的是「这一格就是空的」。而 `FixProposal` 那套里**空值代表「不改」**，
+// 所以「清空」在数据结构上根本表达不出来，得单独走一条路。
+//
+// 三条不许踩的线：
+// 1. 清空 ≠ 撤回自填。撤回自填是「我填错了，退回规则/AI 的值」；
+//    清空是「连原值都不要」。后者严格更强。
+// 2. 清空必须**落存档**，否则翻页回来原值又冒出来，白清。
+// 3. 导出的那一格必须真的是空。`p.title ?? r.title` 这种写法在 p 为空时
+//    会回落成**原值** —— 界面上显示「已清空」，导出的 CSV 里却还是老值，
+//    而且用户看不出来。
+api.clearAll();
+const R3 = mod.ROWS[3];
+const FN3 = R3.fileName;
+// 先确认这条的曲名原值非空，否则「清空」看不出效果
+ok("第 4 条有原始曲名可清", !!(R3.title && R3.title.trim()));
+
+// --- 清空后候选值里没有它，原值不再冒头 ---
+api.setTyped(3, "title", "");
+const e3 = mod.entryOf(3);
+eq("清空后候选值里没有曲名", e3.p.title, undefined);
+ok("清空后 blanked 里有曲名", e3.blanked.has("title"));
+ok("清空后不算「有建议」", !mod.FIELDS.some(f => f.k === "title" && e3.p[f.k] != null));
+
+// --- 清空要落存档，翻回来还是空的 ---
+api.setSaved(FN3, { title: "" });
+eq("存档里的空曲名回填后仍是空的", mod.entryOf(3).p.title, undefined);
+ok("存档里的空曲名仍算已清空", mod.entryOf(3).blanked.has("title"));
+
+// --- 清空算已采纳，导出时会真的写成空 ---
+const row3 = mod.buildCsv().split("\r\n")[4];   // 0=表头，1..4 = 第 1..4 条
+eq("清空后导出的曲名是空", row3.split(",")[1], "");
+ok("导出的曲名不等于原值", row3.split(",")[1] !== R3.title);
+api.clearAll();
+
+// --- 清空调性时两列一起清 ---
+api.setTyped(3, "key", "");
+const row3b = mod.buildCsv().split("\r\n")[4].split(",");
+eq("清空后 keysf 是空", row3b[13], "");
+eq("清空后 keymi 是空", row3b[14], "");
+api.clearAll();
+
+// --- 撤回自填与清空是两件事 ---
+api.setTyped(3, "composer", "某人");
+eq("自填后候选值是自填值", mod.entryOf(3).p.composer, "某人");
+ok("自填不算清空", !mod.entryOf(3).blanked.has("composer"));
+api.setTyped(3, "composer", "");
+eq("改成清空后候选值没了", mod.entryOf(3).p.composer, undefined);
+ok("改成清空后 blanked 里有它", mod.entryOf(3).blanked.has("composer"));
+api.clearTyped(3);
+// 撤回之后回到「规则/AI 说什么就是什么」，而不是「空」
+ok("撤回自填不是清空", !mod.entryOf(3).blanked.has("composer"));
+api.clearAll();
+
+// --- 只有清空的行也算「有改动」---
+// 只判候选值的话，这种行会被判成「无需改动，直接翻下一条」，
+// 而它明明是要写东西出去的。
+api.setTyped(3, "title", "");
+ok("只有清空的行也算有改动", mod.hasChange(mod.entryOf(3)));
+api.clearAll();
+
+// 对照：直接喂一个「候选值全空 + 无清空」的 entry。
+// 不能拿 ROWS 里的真条目来对照 —— 这份样例数据每一条都至少有一条规则建议
+// （标题清洗或作曲家补全），根本不存在「空手」的行，那样对不出来。
+ok(
+  "候选值全空且无清空时不算有改动",
+  !mod.hasChange({ r: R3, p: {}, ov: {}, ai: false, aiAlt: {}, blanked: new Set() }),
+);
+ok(
+  "候选值全空但有清空时算有改动",
+  mod.hasChange({ r: R3, p: {}, ov: {}, ai: false, aiAlt: {}, blanked: new Set(["title"]) }),
+);
+
+// ================ AI 输入框预填文件名 ================
+// 起因：Jackson 说「ai 输入框预填文件名」。他要填 549 条，
+// 每条都手敲一遍曲名是不可接受的开销。
+//
+// 为什么取文件名而不是曲名：文件名是**用户自己当初的命名**，往往比库里
+// 那个被截断/串味的曲名信息更全（「七月的草原 合唱」这类带编制的尾巴都在文件名里）。
+ok("预填会去扩展名", mod.promptFromFileName("七月的草原 合唱.pdf") === "七月的草原 合唱");
+ok("预填会清洗标题噪声", mod.promptFromFileName("《月光》_pdf.pdf") === "月光");
+ok("预填对没扩展名的原样", mod.promptFromFileName("茉莉花") === "茉莉花");
+eq("预填对空文件名安全", mod.promptFromFileName(""), "");
+eq("预填对 null 安全", mod.promptFromFileName(null), "");
+
+// 翻页换预填 vs 保住用户手写的 —— 这一对是本次最容易写错的地方。
+// `prefillPrompt` 的守卫是「有字就不动」，而翻页那一刻框里正好有上一条的预填，
+// 直接调它会被自己挡死（输入框永远停在第一条）。所以翻页走 `reprefillPrompt`，
+// 它按「框里的字是不是我上次预填的那串」判断，而不是按「框里空不空」。
+const aiBox = documentStub.getElementById("aiprompt");
+eq("开场预填的是第一条的文件名", aiBox.value, mod.promptFromFileName(mod.ROWS[0].fileName));
+api.reprefillFor(1);
+eq("翻页后换成第二条的文件名", aiBox.value, mod.promptFromFileName(mod.ROWS[1].fileName));
+api.reprefillFor(0);
+eq("翻回来又换回第一条", aiBox.value, mod.promptFromFileName(mod.ROWS[0].fileName));
+
+// 用户改写过的：翻页不许动它
+aiBox.value = "月光奏鸣曲 升c小调";
+api.reprefillFor(1);
+eq("用户手写的提示词翻页也不动", aiBox.value, "月光奏鸣曲 升c小调");
+
+// 用户删空的：翻页也不许替他填回来（删空也是「动过」）
+aiBox.value = "";
+api.reprefillFor(0);
+eq("用户删空后不许擅自填回来", aiBox.value, "");
+
+// ================ 「只认出曲名」必须是单独一种状态 ================
+// 起因：真机上 gemini-3.8-flash 给《七月的草原》《您花开的样子》返回
+// 「曲名填了、其余四项全空」的对象。这个形态跟「认出来了但信息少」
+// 长得一模一样，意思却相反 —— 曲名往往只是把用户刚敲进去的字抄了一遍。
+// 用户看到蓝条「识别完成」+ 孤零零一行曲名，会以为 AI 认出了这首曲子。
+ok(
+  "只填曲名能被认出来",
+  mod.aiTitleOnly({ title: "您花开的样子", composer: "", instr: "", genre: "", key: "" }),
+);
+ok(
+  "曲名之外还有别的值就不算只有曲名",
+  !mod.aiTitleOnly({ title: "月光", composer: "贝多芬", instr: "", genre: "", key: "" }),
+);
+ok(
+  "只有曲名也不算 unknown（unknown 是另一个分支）",
+  !mod.aiTitleOnly({ unknown: true }),
+);
+ok("null 不算只有曲名", !mod.aiTitleOnly(null));
+
+// ================ 联网兜底（方案 B：App 自己搜，资料喂回模型） ================
+// 规格七条见 fix-stepper-demo.html 的「联网兜底」注释块。这里钉住纯逻辑部分。
+
+// 1. 触发资格：unknown 和 titleOnly 都算「没认出」，认出了不搜
+ok("unknown 该触发联网", mod.searchFallbackEligible({ unknown: true }));
+ok(
+  "titleOnly 该触发联网",
+  mod.searchFallbackEligible({ title: "七月的草原", composer: "", instr: "", genre: "", key: "" }),
+);
+ok(
+  "认出来了不该触发（哪怕字段不全）",
+  !mod.searchFallbackEligible({ title: "月光", composer: "贝多芬", instr: "", genre: "", key: "" }),
+);
+ok("null 不触发", !mod.searchFallbackEligible(null));
+
+// 2. 搜索词：框里有字用框里的（可能带「合唱」这类编制尾巴），空了退回文件名清洗
+eq("搜索词优先用框里的字", mod.buildSearchQuery("  七月的草原 合唱 ", "x.pdf"), "七月的草原 合唱");
+eq("框空了退回文件名", mod.buildSearchQuery("", "《七月的草原》_pdf"), "七月的草原");
+eq("框里全是空格也退回文件名", mod.buildSearchQuery("   ", "月光.pdf"), "月光");
+
+// 3. 模拟搜索的命中/对不上/没命中
+ok("七月的草原搜得到", !!mod.simSearch("七月的草原"));
+eq("七月的草原有两条资料", mod.simSearch("七月的草原").hits.length, 2);
+ok(
+  "边境的小鸟搜得到但对不上（reject）",
+  !!mod.simSearch("边境的小鸟") && mod.simSearch("边境的小鸟").reject === true,
+);
+ok("查无此曲返回 null", mod.simSearch("完全不存在的曲子xyz") === null);
+
+// 4. 兜底结果：认出 → via:'search' + 来源，且不再算 titleOnly
+const fb1 = mod.applySearchFallback("七月的草原");
+eq("二问采信了资料里的作曲家", fb1.result.composer, "内蒙古民歌");
+eq("结果挂 via=search 标记", fb1.result.via, "search");
+eq("来源两条", fb1.sources.length, 2);
+ok("联网认出的结果不再算 titleOnly", !mod.aiTitleOnly(fb1.result));
+
+// 5. 来源截断：4 条命中只亮 3 条 —— 列一排链接没人看
+const fb2 = mod.applySearchFallback("茉莉芬芳");
+eq("来源最多三条", fb2.sources.length, 3);
+
+// 6. 搜不到 → 老实说 unknown + searched，绝不硬编
+const fb3 = mod.applySearchFallback("查无此曲xyz");
+eq("搜不到仍是 unknown", fb3.result.unknown, true);
+eq("挂着 searched 标记（措辞要跟没搜过分开）", fb3.result.searched, true);
+
+// 7. 资料对不上 → 仍是 unknown + searchNote 说明原因，来源照样亮
+const fb4 = mod.applySearchFallback("边境的小鸟");
+eq("资料对不上仍是 unknown", fb4.result.unknown, true);
+ok("有 searchNote 说明为什么不敢下结论", !!fb4.result.searchNote);
+eq("对不上的来源也亮出来", fb4.sources.length, 1);
+
+// 8. 开关：默认开，可关；关掉后自动兜底不跑（黄条出手动键），开关本身可复原
+ok("联网兜底默认开", mod.searchOn());
+mod.setSearchOn(false);
+eq("关掉后 searchOn 为 false", mod.searchOn(), false);
+mod.setSearchOn(true);
+eq("再开回来", mod.searchOn(), true);
+
+// 7.5 1.14 真机案例：资料里写着作曲家，二问必须把归属抄出来，而不是再抄一遍曲名
+const fb5 = mod.applySearchFallback("Bella siccome un angelo");
+eq("咏叹调搜到了归属信息", fb5.result.composer, "Gaetano Donizetti");
+eq("曲名照资料原样", fb5.result.title, "Bella siccome un angelo");
+ok("作曲家有了就不再算 titleOnly", !mod.aiTitleOnly(fb5.result));
+eq("来源亮出来", fb5.sources.length, 3);
 
 // ---------------- 汇总 ----------------
 console.log(`\n通过 ${pass} 项，失败 ${fails.length} 项`);

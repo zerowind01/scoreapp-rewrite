@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>网盘浏览 · 交互演示</title>
+<!--
+  这是「网盘（AList / WebDAV）浏览页」的**交互演示**，是这一版功能的权威规格。
+  Compose 侧的 domain/netdisk/ + ui/NetdiskScreen.kt 要跟它逐条对齐。
+
+  设计前提（已经跟 Jackson 确认过，别改回去）：
+  1. **夸克官方不提供 WebDAV，也不开放标准 API**。能走通的原因是中间有一层
+     AList 替我们跟夸克说话、对外暴露标准 WebDAV。所以本协议**只认 WebDAV**，
+     不认识"夸克"这个概念 —— 换个 AList 存储、或者接坚果云/群晖，一样能用。
+  2. **只在线打开，不入库**。谱子不进乐谱库列表：点开时下载到缓存，看完就丢。
+     由此**不需要曲库持久化**（不入库就没有要记的东西）。
+     缓存只保留**最近 1 份**：打开新的删掉旧的；同一份再打开命中缓存不重下。
+
+  规格（改回去就是 bug）：
+  1. 配置三件套：地址 / 用户名 / 密码。明文存 localStorage，与 AI 配置同一套路。
+     AList 的 WebDAV 地址**末尾必须带 /dav**，填错是最常见的错，404 时要明说。
+  2. 连通性自检：点「测试连接」发一次 PROPFIND，成功显示「连上了，N 项」，
+     失败按状态码翻成人话（见 errorText）。**不许只显示 HTTP 数字**。
+  3. 列表排序：**目录在前，PDF 在后**，各自按名称。
+  4. **非 PDF 文件不列**，但要给一行小字「已跳过 N 个非 PDF」——
+     一声不响地藏掉会让人以为文件丢了。
+  5. 目录自身那条响应（PROPFIND 会把它自己一起返回）要**跳过**，否则列表里
+     永远多一个跟当前目录同名的幽灵项。判据是规范化后的路径等于请求路径。
+  6. 打开流程：命中缓存直接开；否则下载（有进度）→ 存入缓存 → 淘汰旧的 → 打开。
+     下载失败给「重试」，目录列不出来给「重试」+ 返回上一级。
+  7. 返回上一级到根就要停下来，不许继续往上削成空路径。
+-->
+<style>
+  :root{
+    --bg:#F4F4F6; --surface:#fff; --s2:#F1F1F4; --s3:#E9E9EC;
+    --t1:#111113; --t2:#6C6C73; --t3:#A5A5AD; --line:#ECECEF;
+    --accent:#111113; --accentfg:#fff;
+    --blue:#0A72C4; --bluebg:#E7F2FC;
+    --dangerbg:#FDECEC; --dangerfg:#D23A3A;
+    --live:#0D7A4A; --livebg:#E6F4EC;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  body{
+    margin:0; background:#DFDFE3; color:var(--t1);
+    font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+    display:flex; flex-direction:column; align-items:center; padding:20px 12px 40px; gap:14px;
+  }
+  .phone{width:390px; max-width:100%; background:var(--bg); border-radius:26px; overflow:hidden;
+    box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  .app{display:flex; flex-direction:column; height:720px; position:relative}
+
+  .top{padding:10px 16px 0; background:var(--surface)}
+  .toprow{display:flex; align-items:center; gap:8px}
+  .back{width:30px; height:30px; border-radius:15px; background:var(--s3);
+    display:flex; align-items:center; justify-content:center; font-size:15px; color:var(--t2)}
+  .back:active{opacity:.6}
+  .where{font-size:14px; font-weight:700}
+  .spacer{flex:1}
+  .gear{font-size:11px; color:var(--blue); padding:3px 8px; border-radius:8px; background:var(--bluebg)}
+  .gear:active{opacity:.6}
+
+  /* 连接条：常驻顶部，一眼知道连的是哪儿、什么状态 */
+  .conn{display:flex; align-items:center; gap:7px; padding:8px 16px 9px;
+    background:var(--surface); border-bottom:1px solid var(--line)}
+  .dot{width:7px; height:7px; border-radius:4px; background:var(--t3); flex:none}
+  .dot.on{background:var(--live)}
+  .dot.bad{background:var(--dangerfg)}
+  .connaddr{flex:1; min-width:0; font-size:11px; color:var(--t3);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .testbtn{flex:none; font-size:11px; font-weight:700; color:var(--blue);
+    padding:3px 9px; border-radius:8px; background:var(--bluebg)}
+  .testbtn:active{opacity:.6}
+
+  .crumb{display:flex; gap:4px; padding:8px 16px 9px; background:var(--s2);
+    border-bottom:1px solid var(--line); font-size:11px; color:var(--blue);
+    overflow-x:auto; white-space:nowrap}
+  .crumb span:active{opacity:.6}
+  .crumb i{color:var(--t3); font-style:normal}
+
+  .list{flex:1; overflow-y:auto; background:var(--surface); padding:2px 0 6px}
+  .row{display:flex; align-items:center; gap:10px; padding:11px 16px; border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:0}
+  .row:active{background:var(--s2)}
+  .ico{width:26px; height:26px; flex:none; border-radius:7px; background:var(--s3);
+    display:flex; align-items:center; justify-content:center; font-size:12px; color:var(--t2)}
+  .ico.pdf{background:var(--bluebg); color:var(--blue)}
+  .nm{flex:1; min-width:0; font-size:13px; font-weight:700;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .sz{font-size:11px; color:var(--t3); flex:none}
+  .open{flex:none; font-size:11px; font-weight:700; color:var(--blue)}
+  .skip{padding:7px 16px 9px; font-size:10.5px; color:var(--t3); background:var(--surface)}
+
+  .state{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:10px; padding:0 34px; background:var(--surface); text-align:center}
+  .statet{font-size:12.5px; color:var(--t2); line-height:1.7}
+  .statet.err{color:var(--dangerfg)}
+  .mini{height:32px; padding:0 16px; border-radius:10px; background:var(--s3); color:var(--t2);
+    display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700}
+  .mini.pri{background:var(--accent); color:var(--accentfg)}
+  .mini:active{opacity:.7}
+
+  /* 设置面板：从顶部滑下来盖住列表，跟整页一个层级 */
+  .setup{position:absolute; left:0; right:0; top:0; bottom:0; background:var(--bg);
+    display:none; flex-direction:column}
+  .setup.on{display:flex}
+  .sbody{flex:1; overflow-y:auto; padding:12px 16px 16px}
+  .fld{margin-bottom:13px}
+  .fldk{font-size:11px; color:var(--t3); margin-bottom:5px}
+  .fldi{width:100%; height:36px; border:1px solid var(--line); border-radius:10px;
+    padding:0 10px; font:13px/1 inherit; background:var(--surface); color:var(--t1)}
+  .fldi:focus{outline:none; border-color:var(--blue)}
+  .fldhint{font-size:10.5px; color:var(--t3); margin-top:4px; line-height:1.6}
+  .sfoot{display:flex; gap:8px; padding:10px 16px 14px; background:var(--surface);
+    border-top:1px solid var(--line)}
+  .btn{flex:1; height:40px; border-radius:12px; background:var(--s3); color:var(--t2);
+    display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700}
+  .btn.pri{background:var(--accent); color:var(--accentfg)}
+  .btn:active{opacity:.75}
+  .smsg{font-size:11px; min-height:16px; padding:0 16px 8px; background:var(--surface); color:var(--t3)}
+  .smsg.err{color:var(--dangerfg)}
+  .smsg.ok{color:var(--live)}
+
+  /* 阅读器：打开谱子时盖上来。只是个占位壳，真正的渲染在 App 里 */
+  .reader{position:absolute; left:0; right:0; top:0; bottom:0; background:#2B2B2F;
+    display:none; flex-direction:column; align-items:center; justify-content:center; gap:12px;
+    color:#fff}
+  .reader.on{display:flex}
+  .rtitle{font-size:14px; font-weight:700; padding:0 30px; text-align:center}
+  .rmeta{font-size:11px; color:#A9A9B2}
+  .rclose{margin-top:6px; padding:0 18px; height:34px; border-radius:10px; background:#43434A;
+    display:flex; align-items:center; font-size:12px; font-weight:700}
+  .rclose:active{opacity:.7}
+  .rprog{width:180px; height:3px; border-radius:2px; background:#43434A; overflow:hidden}
+  .rprog>i{display:block; height:3px; background:#fff; width:0}
+
+  .hint{width:390px; max-width:100%; font-size:12px; color:#5A5A62; background:#fff;
+    border-radius:12px; padding:12px 14px}
+  .hint b{font-weight:700}
+  .hint ul{margin:6px 0 0; padding-left:18px}
+  .hint li{margin:3px 0}
+</style>
+</head>
+<body>
+
+<div class="phone">
+  <div class="app">
+    <div class="top">
+      <div class="toprow">
+        <div class="back" id="back">&#8592;</div>
+        <div class="where">网盘</div>
+        <div class="spacer"></div>
+        <div class="gear" id="gear">设置</div>
+      </div>
+    </div>
+
+    <div class="conn">
+      <div class="dot" id="dot"></div>
+      <div class="connaddr" id="connaddr">未配置</div>
+      <div class="testbtn" id="testbtn">测试连接</div>
+    </div>
+
+    <div class="crumb" id="crumb"></div>
+
+    <div class="list" id="list"></div>
+    <div class="skip" id="skip"></div>
+
+    <div class="state" id="state" style="display:none">
+      <div class="statet" id="statet"></div>
+      <div class="mini pri" id="retry" style="display:none">重试</div>
+      <div class="mini" id="goback" style="display:none">返回上一级</div>
+    </div>
+
+    <!-- 设置 -->
+    <div class="setup" id="setup">
+      <div class="top">
+        <div class="toprow">
+          <div class="back" id="sback">&#8592;</div>
+          <div class="where">网盘设置</div>
+        </div>
+      </div>
+      <div class="sbody">
+        <div class="fld">
+          <div class="fldk">WebDAV 地址</div>
+          <input class="fldi" id="addr" placeholder="https://你的域名/dav" autocomplete="off">
+          <div class="fldhint">AList 的 WebDAV 地址<b>末尾要带 /dav</b>。少了它一律 404。</div>
+        </div>
+        <div class="fld">
+          <div class="fldk">用户名</div>
+          <input class="fldi" id="user" placeholder="admin" autocomplete="off">
+        </div>
+        <div class="fld">
+          <div class="fldk">密码</div>
+          <input class="fldi" id="pass" type="password" placeholder="AList 的密码" autocomplete="off">
+          <div class="fldhint">明文存在手机上，跟 AI 配置一个套路。公网地址别用弱口令。</div>
+        </div>
+        <div class="fld">
+          <div class="fldk">故障演示（原型专用，真机没有）</div>
+          <select class="fldi" id="fault">
+            <option value="none">正常</option>
+            <option value="401">账号或密码错（401）</option>
+            <option value="404">地址少了 /dav（404）</option>
+            <option value="timeout">连不上（超时）</option>
+            <option value="dl">下载失败</option>
+          </select>
+        </div>
+      </div>
+      <div class="smsg" id="smsg"></div>
+      <div class="sfoot">
+        <div class="btn" id="sclear">清空</div>
+        <div class="btn pri" id="ssave">保存并连接</div>
+      </div>
+    </div>
+
+    <!-- 阅读器壳 -->
+    <div class="reader" id="reader">
+      <div class="rtitle" id="rtitle"></div>
+      <div class="rmeta" id="rmeta"></div>
+      <div class="rprog" id="rprog"><i></i></div>
+      <div class="rclose" id="rclose">关闭</div>
+    </div>
+  </div>
+</div>
+
+<div class="hint">
+  <b>网盘浏览 · 交互演示</b>
+  <ul>
+    <li>先点右上「设置」填地址（随便填个 <span style="color:#0A72C4">https://demo/dav</span> 就行）、用户名、密码，保存。</li>
+    <li>点目录进下一级，面包屑可以往回跳。PDF 行右边「打开」会走下载进度。</li>
+    <li>「故障演示」下拉可以切 401 / 404 / 超时 / 下载失败，看各种错误态。</li>
+    <li>只保留最近 1 份缓存：打开第二份时第一份就被丢掉，再打开第二份不再重下。</li>
+    <li>列表里有非 PDF 文件时，底部会写「已跳过 N 个非 PDF」。</li>
+  </ul>
+</div>
+
+<script>
+// ---------------------------------------------------------------- 常量
+var ND_KEY = 'scoreapp.netdisk.demo';
+
+// ---------------------------------------------------------------- 纯逻辑（测试直接打这些）
+
+/** 只认 PDF。乐谱库别的东西不认 —— 大小写在网盘上很随意 */
+function isPdfName(name) {
+  return /\.pdf$/i.test(String(name || ''));
+}
+
+/** 把 href 里最后一段取出来当名字，并解掉 %E5%85%89 这类转义 */
+function baseName(href) {
+  var s = String(href || '').trim();
+  try { s = decodeURIComponent(s); } catch (e) { /* 坏转义就按原样 */ }
+  s = s.replace(/\/+$/, '');
+  var i = s.lastIndexOf('/');
+  return i < 0 ? s : s.slice(i + 1);
+}
+
+/** 规范化路径：解转义 + 去掉末尾斜杠。比较路径前必须过这一道 */
+function normPath(p) {
+  var s = String(p || '').trim();
+  try { s = decodeURIComponent(s); } catch (e) { /* 同上 */ }
+  return s.replace(/\/+$/, '');
+}
+
+function pickOne(text, re) {
+  var m = String(text).match(re);
+  return m ? m[1].trim() : null;
+}
+
+/**
+ * 解析 PROPFIND 的 207 多状态响应。
+ *
+ * 为什么手写：commonMain 没有 XML 解析器，为它拉一个库不划算（跟 MiniJson 同一条理由）。
+ * 只认三样东西：href、是不是目录、文件大小；够列目录用。
+ *
+ * @param self 本次请求的路径。**必须传** —— PROPFIND 会把目录自己一起返回，
+ *             不过滤的话列表里永远多一个跟当前目录同名的幽灵项。
+ */
+function parsePropfind(xml, self) {
+  var out = [];
+  var blocks = String(xml || '').split(/<(?:\w+:)?response(?:\s[^>]*)?>/).slice(1);
+  for (var i = 0; i < blocks.length; i++) {
+    var b = blocks[i];
+    var href = pickOne(b, /<(?:\w+:)?href(?:\s[^>]*)?>([\s\S]*?)<\/(?:\w+:)?href>/);
+    if (href == null) continue;
+    var name = baseName(href);
+    if (!name) continue;                                  // 根自身（名字为空）
+    if (self && normPath(href) === normPath(self)) continue; // 目录自身
+    var len = pickOne(b, /<(?:\w+:)?getcontentlength(?:\s[^>]*)?>([\s\S]*?)<\/(?:\w+:)?getcontentlength>/);
+    out.push({
+      name: name,
+      path: href,
+      // AList 真机实测：collection 标签带命名空间属性 ——
+      // `<D:collection xmlns:D="DAV:"/>`。正则必须容忍标签上的任意属性，
+      // 否则目录被误判成文件，整个列表会「空得只剩一行跳过提示」。
+      dir: /<(?:\w+:)?collection(?:\s[^>]*)?\/?>/.test(b),
+      size: len ? parseInt(len, 10) : 0,
+    });
+  }
+  return out;
+}
+
+/** 目录在前，PDF 在后，各自按名称。中文按拼音排，跟手机上的直觉一致 */
+function sortEntries(list) {
+  return list.slice().sort(function (a, b) {
+    if (a.dir !== b.dir) return a.dir ? -1 : 1;
+    return String(a.name).localeCompare(String(b.name), 'zh-Hans-CN');
+  });
+}
+
+/** 从列表里挑出能进乐谱库的东西：只要 PDF。目录另走导航 */
+function pdfEntries(list) {
+  return list.filter(function (e) { return !e.dir && isPdfName(e.name); });
+}
+
+/** 被跳过的非 PDF 数量，用来在底部给一行交代 */
+function skippedCount(list) {
+  return list.filter(function (e) { return !e.dir && !isPdfName(e.name); }).length;
+}
+
+function joinPath(base, seg) {
+  return String(base || '').replace(/\/+$/, '') + '/' + encodeURIComponent(seg);
+}
+
+/** 上一级。到根返回 null —— 再往上削会把地址削成空路径 */
+function parentPath(p, root) {
+  var s = normPath(p), r = normPath(root);
+  if (s === r) return null;
+  var i = s.lastIndexOf('/');
+  if (i < 0) return null;
+  var up = s.slice(0, i);
+  return up.length < r.length ? r : up;
+}
+
+/** 状态码翻人话。**不许把裸 HTTP 数字丢给用户** —— 最常见的是 404（地址少 /dav） */
+function errorText(kind) {
+  switch (kind) {
+    case 401: return '账号或密码不对，去设置里改一下';
+    case 403: return '这个账号没权限看这个目录';
+    case 404: return '地址不对。AList 的 WebDAV 地址末尾要带 /dav';
+    case 'timeout': return '连不上，超时了。地址填对了吗？在家外面要用公网地址';
+    case 'ssl': return '证书有问题，换 https 地址试试';
+    case 'net': return '网络不通，检查手机联网';
+    default:
+      if (typeof kind === 'number') return '服务端返回 ' + kind;
+      return '连不上';
+  }
+}
+
+/** Basic 认证头。密码可能有中文，btoa 吃不下非 ASCII，先过一遍 UTF-8 字节 */
+function basicAuth(user, pass) {
+  var bytes = new TextEncoder().encode(String(user) + ':' + String(pass));
+  var bin = '';
+  for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return 'Basic ' + btoa(bin);
+}
+
+function cacheKeyOf(remotePath) { return normPath(remotePath); }
+
+/**
+ * 缓存淘汰：**只留最近 1 份**。
+ * Jackson 定的语义是「看完就丢」，所以打开新的就把旧的删掉，不留一堆在手机上。
+ */
+function evictCache(cache, keep) {
+  var out = {};
+  if (keep && Object.prototype.hasOwnProperty.call(cache, keep)) out[keep] = cache[keep];
+  return out;
+}
+
+// ---------------------------------------------------------------- 演示用的假网盘
+// 真机上这一段换成 SearchBridge 同款的 HttpURLConnection PROPFIND/GET。
+var TREE = {
+  '': [
+    { name: '钢琴', dir: true },
+    { name: '声乐', dir: true },
+    { name: '总谱', dir: true },
+    { name: '说明.txt', dir: false, size: 120 },
+    { name: '封面.jpg', dir: false, size: 45321 },
+  ],
+  '/钢琴': [
+    { name: '拜厄', dir: true },
+    { name: '月光奏鸣曲.pdf', dir: false, size: 881869 },
+    { name: '致爱丽丝.pdf', dir: false, size: 210344 },
+  ],
+  '/钢琴/拜厄': [
+    { name: '拜厄 No.1-20.pdf', dir: false, size: 1204551 },
+    { name: '拜厄 No.21-40.pdf', dir: false, size: 987233 },
+    { name: '目录.xlsx', dir: false, size: 9021 },
+  ],
+  '/声乐': [
+    { name: '七月的草原.pdf', dir: false, size: 334211 },
+    { name: '像天使一样美丽.pdf', dir: false, size: 512900 },
+    { name: '损坏的.pdf', dir: false, size: 1024 },
+  ],
+  '/总谱': [
+    { name: '空目录占位.txt', dir: false, size: 11 },
+  ],
+};
+
+var cfg = { addr: '', user: '', pass: '' };
+var FAULT = 'none';
+var root = '';            // 规范化后的根路径
+var cwd = '';             // 当前目录（相对根）
+var entries = [];
+var cache = {};           // 缓存：key -> {name,size,path}
+var lastOpened = null;
+var busy = false;
+var loadErr = null;
+
+function el(id) { return document.getElementById(id); }
+
+function relOf(p) {
+  var s = normPath(p);
+  var r = normPath(root);
+  return s.indexOf(r) === 0 ? s.slice(r.length) : '';
+}
+
+function loadCfg() {
+  try {
+    var raw = localStorage.getItem(ND_KEY);
+    if (raw) {
+      var o = JSON.parse(raw);
+      cfg.addr = o.addr || '';
+      cfg.user = o.user || '';
+      cfg.pass = o.pass || '';
+    }
+  } catch (e) { /* 坏存档当没配过 */ }
+}
+
+function saveCfg() {
+  try { localStorage.setItem(ND_KEY, JSON.stringify(cfg)); } catch (e) {}
+}
+
+function configured() {
+  return !!(cfg.addr && cfg.user && cfg.pass);
+}
+
+/** 模拟一次 PROPFIND。真机上是 HttpURLConnection + Basic 头 */
+function fetchDir(rel, cb) {
+  setTimeout(function () {
+    if (FAULT === '401') { cb({ kind: 401 }); return; }
+    if (FAULT === '404') { cb({ kind: 404 }); return; }
+    if (FAULT === 'timeout') { cb({ kind: 'timeout' }); return; }
+    var list = TREE[rel];
+    cb({ ok: true, list: list ? list.slice() : [] });
+  }, 220);
+}
+
+/** 模拟下载。真机上是 GET 写文件；这里只走个进度 */
+function download(entry, onProgress, cb) {
+  var steps = 0;
+  var timer = setInterval(function () {
+    steps += 25;
+    onProgress(Math.min(steps, 100));
+    if (steps >= 100) {
+      clearInterval(timer);
+      setTimeout(function () {
+        if (FAULT === 'dl' || /损坏/.test(entry.name)) cb({ kind: 'net' });
+        else cb({ ok: true });
+      }, 120);
+    }
+  }, 90);
+}
+
+// ---------------------------------------------------------------- 渲染
+function renderConn() {
+  var d = el('dot');
+  if (!configured()) {
+    d.className = 'dot';
+    el('connaddr').textContent = '未配置，点右上「设置」';
+    return;
+  }
+  d.className = 'dot' + (loadErr ? ' bad' : ' on');
+  el('connaddr').textContent = (loadErr ? errorText(loadErr) : '已连上 · ' + cfg.addr);
+}
+
+function renderCrumb() {
+  var parts = [];
+  var acc = '';
+  parts.push('<span data-rel="">网盘</span>');
+  var segs = cwd.split('/').filter(function (s) { return s; });
+  for (var i = 0; i < segs.length; i++) {
+    acc += '/' + segs[i];
+    parts.push('<i>/</i><span data-rel="' + acc + '">' + segs[i] + '</span>');
+  }
+  el('crumb').innerHTML = parts.join('');
+  var spans = el('crumb').querySelectorAll ? [] : [];
+  // 面包屑点击：原型里用事件委托，DOM 桩下 querySelectorAll 返回空也不影响测试
+  if (el('crumb').querySelectorAll) {
+    var nodes = el('crumb').querySelectorAll('span');
+    for (var j = 0; j < nodes.length; j++) {
+      (function (node) {
+        node.onclick = function () { go(node.getAttribute('data-rel') || ''); };
+      })(nodes[j]);
+    }
+  }
+  return spans;
+}
+
+function renderList() {
+  if (loadErr) {
+    el('list').style.display = 'none';
+    el('skip').style.display = 'none';
+    el('state').style.display = 'flex';
+    el('statet').className = 'statet err';
+    el('statet').textContent = errorText(loadErr);
+    el('retry').style.display = 'flex';
+    el('goback').style.display = cwd ? 'flex' : 'none';
+    return;
+  }
+  if (!configured()) {
+    el('list').style.display = 'none';
+    el('skip').style.display = 'none';
+    el('state').style.display = 'flex';
+    el('statet').className = 'statet';
+    el('statet').textContent = '还没配网盘。点右上「设置」填上 AList 的地址、账号、密码。';
+    el('retry').style.display = 'none';
+    el('goback').style.display = 'none';
+    return;
+  }
+  el('state').style.display = 'none';
+  el('list').style.display = 'block';
+
+  var sorted = sortEntries(entries);
+  if (!sorted.length) {
+    el('list').innerHTML = '';
+    el('skip').style.display = 'block';
+    el('skip').textContent = '这个目录是空的';
+    return;
+  }
+  var html = '';
+  for (var i = 0; i < sorted.length; i++) {
+    var e = sorted[i];
+    if (e.dir) {
+      html += '<div class="row" data-idx="' + i + '" data-dir="1">'
+        + '<div class="ico">&#128193;</div>'
+        + '<div class="nm">' + e.name + '</div>'
+        + '<div class="open">进入</div></div>';
+    } else if (isPdfName(e.name)) {
+      html += '<div class="row" data-idx="' + i + '" data-dir="0">'
+        + '<div class="ico pdf">PDF</div>'
+        + '<div class="nm">' + e.name + '</div>'
+        + '<div class="sz">' + kb(e.size) + '</div>'
+        + '<div class="open">打开</div></div>';
+    }
+    // 非 PDF 文件不画 —— 但下面会给一行交代，不能一声不响地藏掉
+  }
+  el('list').innerHTML = html;
+
+  var rows = el('list').querySelectorAll ? el('list').querySelectorAll('.row') : [];
+  for (var k = 0; k < rows.length; k++) {
+    (function (node) {
+      node.onclick = function () {
+        var e2 = sorted[parseInt(node.getAttribute('data-idx'), 10)];
+        if (e2.dir) go(relOf(e2.path));
+        else openPdf(e2);
+      };
+    })(rows[k]);
+  }
+
+  var sk = skippedCount(entries);
+  el('skip').style.display = sk ? 'block' : 'none';
+  el('skip').textContent = '已跳过 ' + sk + ' 个非 PDF 文件（乐谱库只认 PDF）';
+}
+
+
+/**
+ * 进度文案（与 Kotlin `Netdisk.progressLabel` 一一对应）。
+ * 关键是 pct >= 100 单独一支：那时候字节已经收完了，还在说「正在下载…」
+ * 用户就以为卡死 —— Compose 那边 1.22 真机正是这个现象。
+ */
+function dlSize(n) {
+  if (!n || n <= 0) return '';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return Math.floor(n / 1024) + ' KB';
+  var tenths = Math.floor((n * 10) / (1024 * 1024));
+  return Math.floor(tenths / 10) + '.' + (tenths % 10) + ' MB';
+}
+
+function dlBytes(done, total) {
+  if (!done || done <= 0) return '';
+  if (!total || total <= 0) return '  已收 ' + dlSize(done);
+  return '  ' + dlSize(done) + ' / ' + dlSize(total);
+}
+
+function dlLabel(pct, done, total) {
+  // 100 = 字节真的收完了：这时候只报「正在打开」，再摆一遍数字是噪音
+  if (pct >= 100) return '已下载，正在打开…';
+  return (pct < 0 ? '正在下载…' : pct + '%') + dlBytes(done, total);
+}
+
+function kb(n) {
+  if (!n) return '';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' KB';
+  return (n / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+function go(rel) {
+  if (busy) return;
+  cwd = rel || '';
+  load();
+}
+
+function load() {
+  if (!configured()) { renderConn(); renderCrumb(); renderList(); return; }
+  busy = true;
+  loadErr = null;
+  renderConn(); renderCrumb(); renderList();
+  fetchDir(cwd, function (res) {
+    busy = false;
+    if (res.ok) {
+      entries = res.list.map(function (e) {
+        return { name: e.name, path: joinPath(root + cwd, e.name), dir: !!e.dir, size: e.size || 0 };
+      });
+      loadErr = null;
+    } else {
+      entries = [];
+      loadErr = res.kind;
+    }
+    renderConn(); renderCrumb(); renderList();
+  });
+}
+
+// ---------------------------------------------------------------- 打开谱子
+function openPdf(entry) {
+  var key = cacheKeyOf(entry.path);
+  if (cache[key]) {                       // 命中缓存：不重下
+    lastOpened = key;
+    showReader(entry.name, '来自缓存，没有重新下载');
+    return;
+  }
+  showReader(entry.name, '正在下载…');
+  setProgress(0);
+  el('rclose').style.display = 'none';
+  var dtotal = entry.size || 0;
+  download(entry, function (p) {
+    setProgress(p);
+    el('rmeta').textContent = dlLabel(p, Math.round(dtotal * p / 100), dtotal);
+  }, function (res) {
+    if (!res.ok) {
+      el('rmeta').textContent = '下载失败：' + errorText(res.kind);
+      el('rprog').style.display = 'none';
+      el('rclose').style.display = 'flex';
+      return;
+    }
+    // 只留最近 1 份：打开新的就把上一份丢掉
+    cache = evictCache(cache, key);
+    cache[key] = { name: entry.name, size: entry.size, path: entry.path };
+    lastOpened = key;
+    el('rprog').style.display = 'none';
+    el('rmeta').textContent = '已下载到缓存 · ' + kb(entry.size) + ' · 看完就丢';
+    el('rclose').style.display = 'flex';
+  });
+}
+
+function setProgress(p) {
+  el('rprog').style.display = 'flex';
+  el('rprog').children[0].style.width = p + '%';
+}
+
+function showReader(title, meta) {
+  el('reader').className = 'reader on';
+  el('rtitle').textContent = title;
+  el('rmeta').textContent = meta;
+}
+
+function closeReader() { el('reader').className = 'reader'; }
+
+// ---------------------------------------------------------------- 设置面板
+function openSetup() {
+  el('addr').value = cfg.addr;
+  el('user').value = cfg.user;
+  el('pass').value = cfg.pass;
+  el('smsg').textContent = '';
+  el('smsg').className = 'smsg';
+  el('setup').className = 'setup on';
+}
+
+function closeSetup() { el('setup').className = 'setup'; }
+
+function applyCfg() {
+  cfg.addr = el('addr').value.trim();
+  cfg.user = el('user').value.trim();
+  cfg.pass = el('pass').value;
+  root = normPath(cfg.addr);
+  cwd = '';
+  entries = [];
+  loadErr = null;
+  saveCfg();
+}
+
+// ---------------------------------------------------------------- 绑定
+el('gear').onclick = openSetup;
+el('sback').onclick = function () { closeSetup(); renderConn(); renderCrumb(); renderList(); };
+el('back').onclick = function () { go(parentPath(root + cwd, root) ? relOf(parentPath(root + cwd, root)) : ''); };
+el('rclose').onclick = closeReader;
+el('retry').onclick = function () { load(); };
+el('goback').onclick = function () {
+  var up = parentPath(root + cwd, root);
+  go(up ? relOf(up) : '');
+};
+el('ssave').onclick = function () {
+  applyCfg();
+  closeSetup();
+  load();
+};
+el('sclear').onclick = function () {
+  cfg = { addr: '', user: '', pass: '' };
+  try { localStorage.removeItem(ND_KEY); } catch (e) {}
+  el('addr').value = ''; el('user').value = ''; el('pass').value = '';
+  root = ''; cwd = ''; entries = []; loadErr = null;
+  el('smsg').textContent = '已清空';
+  el('smsg').className = 'smsg';
+};
+el('testbtn').onclick = function () {
+  if (!configured()) { openSetup(); return; }
+  el('connaddr').textContent = '正在测试…';
+  fetchDir('', function (res) {
+    if (res.ok) {
+      loadErr = null;
+      el('smsg').textContent = '';
+    } else {
+      loadErr = res.kind;
+    }
+    renderConn();
+  });
+};
+if (el('fault')) {
+  el('fault').onchange = function () { FAULT = el('fault').value; };
+}
+
+// ---------------------------------------------------------------- 启动
+loadCfg();
+root = normPath(cfg.addr);
+renderConn();
+renderCrumb();
+renderList();
+if (!configured()) openSetup();
+</script>
+</body>
+</html>

@@ -56,6 +56,16 @@ object CsvAdapter {
         columns: ColumnMap,
         proposal: FixProposal?,
         take: Set<String>,
+        /**
+         * 被用户**明确要求清空**的字段代号。
+         *
+         * 为什么要单独传：`FixProposal` 用 `null` 表示「没改动」，
+         * 于是「要求这一格空」在里面**表达不出来** —— 它跟「没改」长得一样。
+         * 而 `write()` 遇到 null 是直接 return（保留原值）的，
+         * 结果就是用户点过清空的格子，导出来还是那个错值。
+         * 所以这个意图必须由调用方另开一个口子传进来，不能塞进 proposal。
+         */
+        blank: Set<String> = emptySet(),
     ): List<String> {
         val out = original.toMutableList()
         // 补齐：原行可能比表头短（CSV 里行尾空列常被省略）
@@ -64,6 +74,20 @@ object CsvAdapter {
         fun write(col: String, value: String?) {
             if (value == null) return
             columns[col]?.let { if (it in out.indices) out[it] = value }
+        }
+
+        // 先落「清空」：把对应单元格写成空串。放在 proposal 之前，
+        // 保证它就是最终值（清空了的格子不该再被任何建议值写一次）。
+        if ("title" in blank) write(ColumnMap.TITLE, "")
+        if ("comp" in blank) write(ColumnMap.COMP, "")
+        if ("genre" in blank) write(ColumnMap.GENRE, "")
+        if ("tag" in blank) write(ColumnMap.TAG, "")
+        if ("label" in blank) write(ColumnMap.LABEL, "")
+        if ("ref" in blank) write(ColumnMap.REF, "")
+        // 调性两列一起清，理由同下面「必须两列一起写」
+        if ("keysf" in blank) {
+            write(ColumnMap.KEY_KEYSF, "")
+            write(ColumnMap.KEY_KEYMI, "")
         }
 
         if (proposal != null) {

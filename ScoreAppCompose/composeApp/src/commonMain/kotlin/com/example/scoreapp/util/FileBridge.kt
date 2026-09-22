@@ -159,6 +159,55 @@ interface FileBridge {
      * 不再像原应用那样报一个写死的「已清理 24 MB」。
      */
     fun clearCoverCache(): Long
+
+    /**
+     * 读逐条校对的存档（`filesDir/fix-store.json`）。
+     *
+     * 返回 null 表示还没存过或读不到，调用方退化成空存档 —— 存档是纯附加信息，
+     * 读失败只该表现为「上次进度没了」，不该阻断功能。
+     *
+     * 之所以走桥而不是在 commonMain 直接读文件：`java.io.File` 只存在于 Android，
+     * 而 [FixStoreHolder] 的逻辑（翻页、逐字段采纳）必须能在 commonTest 里跑。
+     */
+    fun readFixStore(): String?
+
+    /** 写逐条校对的存档。返回是否写成功 */
+    fun writeFixStore(json: String): Boolean
+
+    /** 删掉存档文件（「清空存档」用），返回是否删掉了 */
+    fun clearFixStore(): Boolean
+
+    /**
+     * 网盘谱子的缓存目录（`filesDir/netdisk`），不存在则创建。
+     *
+     * 与 `scores/` 分开：网盘谱子**不进乐谱库**（只在线打开、看完就丢），
+     * 混在一起会让「导入与存储」那个统计把临时文件也算进去。
+     */
+    fun netdiskCacheDir(): String
+
+    /**
+     * 网盘连接配置的读写（`filesDir/netdisk.json`）。
+     *
+     * 与存档同一条理由走桥：地址 / 账号 / 口令要明文留在手机上，
+     * 而 `java.io.File` 只存在于 Android。
+     */
+    fun readNetdiskConfig(): String?
+
+    fun writeNetdiskConfig(json: String): Boolean
+
+    /**
+     * 读乐谱库存档（`filesDir/library.json`）。
+     *
+     * 一份文件装两块：网盘入库的条目与用户改过的元数据（`net` 段），
+     * 以及本机的同一类信息（`local` 段）。合成一份是为了**一次写盘** ——
+     * 分成两个文件的话，写了一半崩了就会得到「网盘记得住、本机不记得」的半截状态。
+     *
+     * 返回 null 表示还没存过（首次启动），调用方退化成空存档。
+     */
+    fun readLibraryJson(): String?
+
+    /** 写乐谱库存档。返回是否写成功 */
+    fun writeLibraryJson(json: String): Boolean
 }
 
 /**

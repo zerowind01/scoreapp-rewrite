@@ -42,6 +42,11 @@ fun ScoreCard(
     onShare: () -> Unit,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
+    /**
+     * 右下角那枚状态标签（网盘条目用它写「已缓存 / 需下载」）。
+     * 本机条目没有这一步，传空串即不显示。
+     */
+    badge: String = "",
 ) {
     Surface(
         modifier = modifier
@@ -65,7 +70,7 @@ fun ScoreCard(
                         .height(118.dp)
                         .clip(RoundedCornerShape(Tokens.RadiusThumb)),
                 )
-                CardBody(score, onView, onShare, onEdit, Modifier.fillMaxWidth())
+                CardBody(score, onView, onShare, onEdit, badge, Modifier.fillMaxWidth())
             }
         } else {
             Row(
@@ -79,7 +84,7 @@ fun ScoreCard(
                         .clip(RoundedCornerShape(Tokens.RadiusThumb)),
                 )
                 // 横向排布时用 weight 吃掉剩余宽度；若写 fillMaxWidth 会按整行宽度测量而溢出
-                CardBody(score, onView, onShare, onEdit, Modifier.weight(1f))
+                CardBody(score, onView, onShare, onEdit, badge, Modifier.weight(1f))
             }
         }
     }
@@ -91,6 +96,7 @@ private fun CardBody(
     onView: () -> Unit,
     onShare: () -> Unit,
     onEdit: () -> Unit,
+    badge: String = "",
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -118,6 +124,7 @@ private fun CardBody(
             MetaTag(score.type, Tokens.TagTypeFg, Tokens.TagTypeBg)
             MetaTag(score.instrument, Tokens.TagInstFg, Tokens.TagInstBg)
             if (score.isAi) MetaTag("AI 识别", Tokens.TagAiFg, Tokens.TagAiBg)
+            if (badge.isNotBlank()) MetaTag(badge, Tokens.LinkBlue, Tokens.TagAiBg)
         }
 
         Spacer(Modifier.height(1.dp))

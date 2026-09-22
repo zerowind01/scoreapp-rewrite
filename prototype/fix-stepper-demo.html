@@ -118,6 +118,14 @@
     color:var(--accentfg); font-size:13px; font-weight:700; display:flex; align-items:center}
   .aigo:active{opacity:.75}
   .aigo.busy{background:var(--s3); color:var(--t2)}
+  /* 联网兜底开关（方案 B：App 自己搜，把资料喂回模型再问一遍）。
+     常驻输入框左侧小徽章 —— 状态一眼可见，点一下就切换，不开设置页 */
+  .aitoggle{flex:none; height:22px; padding:0 7px; border-radius:7px; font-size:10.5px;
+    display:flex; align-items:center; font-weight:700; background:var(--bluebg); color:var(--blue)}
+  .aitoggle.off{background:var(--s3); color:var(--t3)}
+  /* 联网查到的结果要标来源 —— 用户得能自己判断可信度，不能只给结论 */
+  .aisrc{font-size:10.5px; color:var(--t3); margin:-3px 0 7px; word-break:break-all}
+  .aisrc b{color:var(--t2); font-weight:700}
   .aihint{font-size:11px; color:var(--t3); margin-top:5px}
   .aihint:empty{display:none}
   .aihint.err{color:var(--dangerfg)}
@@ -139,6 +147,24 @@
     display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700}
   .aimini.pri{background:var(--accent); color:var(--accentfg)}
   .aimini:active{opacity:.75}
+  /* 「收起」单独小键 + 弹性占位：三个键等宽会把「填入本条」压窄，主次不分 */
+  .aiacts .aimini#aicollapse{flex:none; width:50px; font-weight:400; font-size:11px; color:var(--t3)}
+  .aigrow{flex:1}
+  /* 结果行限高可滚：五行长值能到 200px 以上，会把下面的字段区挤没；
+     键盘一弹更糟。给个上限，超出在块内滚，不侵占字段区。 */
+  .airows{max-height:168px; overflow-y:auto; overscroll-behavior:contain}
+  /* 折叠态：整块收成一行 */
+  .aicollapsed{display:flex; align-items:center; gap:7px}
+  .aicollapsed .aicolltitle{flex:1; min-width:0; font-size:11px; color:var(--t3);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .aicollapsed .aimini{flex:none; width:50px; height:26px; font-size:11px; font-weight:400; color:var(--blue)}
+  /* 清空态：原值划掉 + 「将清空」 + 灰「已清空」标记。
+     三样都得有 —— 只给一个灰标记的话，用户看到错误值不见了会以为
+     「这格已经没问题」，而不是「这格要被清空」，导出后原值没了新值也没填。 */
+  .old.strike{text-decoration:line-through; opacity:.65}
+  .new.clear{color:var(--t3); font-weight:400}
+  .ctag{display:inline-block; margin-left:6px; padding:0 5px; border-radius:5px;
+    font-size:10px; font-weight:700; background:var(--s3); color:var(--t2)}
 </style>
 </head>
 <body>
@@ -162,6 +188,9 @@
   <div class="aibar" id="aibar">
     <div class="airowtop">
       <div class="ailab" id="ailab">AI 生成</div>
+      <!-- 联网兜底开关：点了生成却没认出时，自动搜一次网页资料再问一遍。
+           默认开。关掉后，「没认出」黄条上会出「联网搜一次」手动键 -->
+      <div class="aitoggle" id="aisearchtoggle" title="联网兜底">联网</div>
       <input class="aiinput" id="aiprompt" placeholder="写曲名，如 月光奏鸣曲" autocomplete="off">
       <div class="aigo" id="aigo">生成</div>
     </div>
@@ -179,7 +208,9 @@
     -->
     <div class="aitips" id="aitips">
       写全一点更准：带上<b>作曲家</b>、<b>作品号</b>，外国曲子可以写原文；<b>调性</b>写 am / bE / c#m；<b>乐器</b>写 Piano / 二胡。<br>
-      认得的曲子会补齐五项，不确定的留空；<b>认不出就直接说没认出，不要硬凑</b> —— 猜出来的调性比留空更糟。
+      认得的曲子会补齐五项，不确定的留空；<b>认不出就直接说没认出，不要硬凑</b> —— 猜出来的调性比留空更糟。<br>
+      只回了曲名、其余四项空着的，<b>不算认出来</b>：那行字可能只是把你写的抄一遍。<br>
+      没认出时会<b>自动联网搜一次</b>资料再问一遍（左上「联网」可关）；搜回来的结果照样过闸门、照样要勾选，<b>来源标在下面</b>，可信度自己把关。
     </div>
     <div class="aihint" id="aistate"></div>
     <div class="aiout" id="aipanel"></div>
@@ -211,6 +242,7 @@
         优先级高于 AI 和规则。规则给不出、AI 又永不碰的<b>「标签」「来源」</b>就靠它。</li>
     <li><b>填过的值会记住</b>：同一字段再展开就有「用过的值」可直接点（按字段分组、最近用在前、最多 8 个），
         刷新也在。「清空存档」只清进度，<b>不清这张词表</b>。</li>
+    <li><b>联网兜底</b>：第一遍没认出（或只回了曲名）时，自动搜一次网页、带着资料再问一遍（演示页用假搜索：试试「七月的草原」「边境的小鸟」「Bella siccome un angelo」）。两遍都不认得就明说，不硬凑；搜到的结果照样过闸门、照样勾选，<b>来源标在结果下面</b>。输入框左侧「联网」徽章可关；关掉后黄条上出「联网搜一次」手动键。<b>批量校对永不自动联网</b>。</li>
     <li>键盘：<span class="kbd">&#8592;</span> <span class="kbd">&#8594;</span> 翻页，<span class="kbd">空格</span> 采纳并继续。</li>
   </ul>
 </div>
@@ -440,6 +472,17 @@ function inferGenre(title, foreign) {
 function aiGenerate(prompt) {
   const q = (prompt || '').trim();
   if (!q) return null;
+  // 演示钩子：提示词里带「只填曲名」，就回「只认出曲名」那种形态。
+  // 真机上这个是 gemini-3.8-flash 自己冒出来的（见 aiTitleOnly 的注释），
+  // 不是在提示词里写了才有的 —— 这里留个开关，好让这个分支随时能演示、能回归。
+  if (/只填曲名/.test(q)) {
+    return {
+      foreign: false,
+      title: q.replace(/只填曲名/g, '').trim() || q,
+      composer: '', instr: '', key: '', genre: '',
+      note: '识别完成',
+    };
+  }
   for (const k of KNOW) {
     if (k.hit.test(q)) {
       return {
@@ -500,6 +543,8 @@ function rememberUsed(k, v) {
 function entryOf(i) {
   const r = ROWS[i];
   const { p, ov } = propose(r);
+  // 用户要求清空的字段（导出时这些格要写成空，而不是留原值）
+  const blanked = new Set();
   // AI 独立页送进来的结果覆盖规则给出的建议（AI 更权威）
   const ai = aiInjected[i];
   const aiAlt = {};
@@ -531,15 +576,25 @@ function entryOf(i) {
   if (tp) {
     for (const k of Object.keys(tp)) {
       const v = tp[k];
-      if (v == null || v === '') continue;
+      // 空串 = 用户**明确要求这个字段空**（「清空字段」做出来的）。
+      // 它跟「没填过」是两回事：没填过 = 让规则/AI 的值顶上，
+      // 空串 = 连原值都不要了，导出时这一格就得写成空的。
+      if (v === '') {
+        delete p[k]; delete ov[k]; delete aiAlt[k]; blanked.add(k);
+        continue;
+      }
+      if (v == null) continue;
       p[k] = v;
       delete aiAlt[k];          // 自己写了值，「备选」提示就没意义了
     }
   }
-  return { r, p, ov, ai: !!ai, aiAlt };
+  return { r, p, ov, ai: !!ai, aiAlt, blanked };
 }
 function hasChange(e) {
-  return FIELDS.some(f => e.p[f.k] != null);
+  // 清空也算改动。只判 `p`（候选值）的话，一条「只有清空、没有任何新值」的行
+  // 会被判成「无需改动」，底下一行「直接翻下一条即可」——
+  // 而它明明是要写东西出去的。
+  return FIELDS.some(f => e.p[f.k] != null) || (e.blanked && e.blanked.size > 0);
 }
 function persist() {
   try {
@@ -572,6 +627,10 @@ function render() {
     const takenNow = draft.has(f.k) || (stored && stored[f.k] != null);
     const isOv = !!(next != null && cur && cur.trim());
     const mine = (typed[idx] || {})[f.k] || '';
+    // 用户要求清空这个字段：跟 `mine`（自填）是两回事，得分开认。
+    // `mine` 取不到空串（`|| ''` 把空串也变成假值），所以单独查一遍 typed。
+    const tv = (typed[idx] || {})[f.k];
+    const isBlanked = tv === '';
 
     const row = document.createElement('div');
     row.className = 'f';
@@ -584,7 +643,31 @@ function render() {
     const body = document.createElement('div');
     body.className = 'fbody';
 
-    if (next == null) {
+    if (isBlanked) {
+      // 清空态：原值划掉、候选值不出现，明说「导出时会写成空」。
+      //
+      // 三样都得有。只显示一个灰「已清空」的话，用户看到上面原本的错误值不见了，
+      // 会以为是「这一格已经没问题了」，而不是「这一格要被清空」——
+      // 结果导出后原值没了、新值也没填，比不清更糟。
+      if (cur && cur.trim()) {
+        const o = document.createElement('div');
+        o.className = 'old strike';
+        o.textContent = cur;
+        body.appendChild(o);
+      }
+      const b = document.createElement('div');
+      b.className = 'new clear';
+      b.textContent = '将清空';
+      const t = document.createElement('span');
+      t.className = 'ctag';
+      t.textContent = '已清空';
+      b.appendChild(t);
+      body.appendChild(b);
+      const h = document.createElement('div');
+      h.className = 'none';
+      h.textContent = '导出时这一格写成空，原值不再保留';
+      body.appendChild(h);
+    } else if (next == null) {
       const s = document.createElement('div');
       s.className = 'plain';
       s.textContent = (cur && cur.trim()) ? cur : '（空）';
@@ -639,7 +722,7 @@ function render() {
     // 不然这个叫「标签工具」的页面，标签一列永远是死的。
     const op = document.createElement('div');
     op.className = 'fopen';
-    op.textContent = mine ? '✎ 改自己填的值' : '＋ 自己填';
+    op.textContent = isBlanked ? '✎ 改回原值' : (mine ? '✎ 改自己填的值' : '＋ 自己填');
     body.appendChild(op);
 
     const ed = document.createElement('div');
@@ -671,11 +754,22 @@ function render() {
     acts.className = 'edacts';
     const bCancel = document.createElement('div');
     bCancel.className = 'mini';
-    bCancel.textContent = mine ? '撤回自填' : '收起';
+    // 清空态下，这个键是「改回原值」（撤掉清空），措辞不能还是「撤回自填」——
+    // 清空不是一种自填，用户没往这儿写过任何字。
+    bCancel.textContent = isBlanked ? '改回原值' : (mine ? '撤回自填' : '收起');
+    const bClear = document.createElement('div');
+    bClear.className = 'mini';
+    // 「清空」与「撤回自填」是两件不同的事，别合并：
+    //   撤回自填 = 我写错了，退回规则/AI 给的值（原值该被覆盖时照样覆盖）
+    //   清空     = 我要求这一格是空的（连原值都不要）
+    // 后者严格更强。合并成一个键的话，用户想「撤掉我填的」却把原值也清了，
+    // 想「清空」又找不到入口。
+    bClear.textContent = '清空';
     const bSet = document.createElement('div');
     bSet.className = 'mini pri';
     bSet.textContent = '用这个值';
     acts.appendChild(bCancel);
+    acts.appendChild(bClear);
     acts.appendChild(bSet);
     ed.appendChild(acts);
     body.appendChild(ed);
@@ -689,16 +783,34 @@ function render() {
         persist();
       }
     }
+    // 清空：typed 里记空串、draft 记已勾选、存档同步写成空串。
+    // 存档也要写 —— 只改内存的话翻页回来就丢了（见 commitAndNext 的注释）。
+    function clearField() {
+      if (!typed[idx]) typed[idx] = {};
+      typed[idx][f.k] = '';
+      draft.add(f.k);
+      if (!saved[r.fileName]) saved[r.fileName] = {};
+      saved[r.fileName][f.k] = '';
+      persist();
+      render();
+    }
     op.onclick = () => {
       ed.className = 'fedit on';
       op.style.display = 'none';
       inp.value = mine || (next != null ? next : (f.k === 'key' ? '' : (cur || '')));
       inp.focus();
     };
-    bCancel.onclick = () => { if (mine) dropTyped(); render(); };
+    bCancel.onclick = () => {
+      // 清空态 → 撤掉清空，原值回来（`dropTyped` 会一并抹掉存档里的空串）
+      if (isBlanked || mine) dropTyped();
+      render();
+    };
+    bClear.onclick = clearField;
     bSet.onclick = () => {
       const s = (inp.value || '').trim();
-      if (!s) { if (mine) dropTyped(); render(); return; }
+      // 空输入＝撤掉已有动作（自填或清空），不是「清空」。
+      // 想清空得点「清空」—— 手滑清掉输入框不该把原值也抹了。
+      if (!s) { if (isBlanked || mine) dropTyped(); render(); return; }
       if (!typed[idx]) typed[idx] = {};
       typed[idx][f.k] = s;
       draft.add(f.k);                 // 自己写的＝已经决定要它，不用再勾一次
@@ -717,7 +829,9 @@ function render() {
 
     row.appendChild(body);
 
-    if (next != null || alt != null) {
+    // 清空的字段也要有勾选框 —— 它已经算「已采纳」（导出时真的写空）。
+    // 没有勾选框的话，用户清完发现这一行没有勾、以为没生效。
+    if (next != null || alt != null || isBlanked) {
       const c = document.createElement('div');
       c.className = 'chk' + (takenNow ? ' on' : '');
       c.textContent = takenNow ? '✓' : '';
@@ -761,15 +875,20 @@ function commitAndNext() {
   // 一旦允许用户自己写，重算就对不上了（AI 给的、手打的都算不出来）。
   const picks = {};
   FIELDS.forEach(f => { if (e.p[f.k] != null && draft.has(f.k)) picks[f.k] = e.p[f.k]; });
+  // 被要求清空的字段也要落存档（值写成空串）。
+  // 不落的话翻回来它会重新冒出原值 —— 用户明明点了「清空」，翻一圈白清。
+  // 空串在存档里是有意义的：`typed` 里同样记着空串，两者对得上。
+  if (e.blanked) e.blanked.forEach(k => { if (draft.has(k)) picks[k] = ''; });
   if (Object.keys(picks).length) saved[r.fileName] = picks; else delete saved[r.fileName];
   draft = new Set();
   persist();
   if (idx < ROWS.length - 1) idx++;
   aiResult = null;                  // AI 结果属于上一条，翻页即清
-  el('aiprompt').value = '';
   el('aistate').textContent = '';
+  el('aistate').className = 'aihint';
   render();
   renderAi();
+  reprefillPrompt();                // 换成新条目的文件名（用户手写过的保住）
 }
 
 function go(delta) {
@@ -777,10 +896,59 @@ function go(delta) {
   idx = Math.max(0, Math.min(ROWS.length - 1, idx + delta));
   persist();
   aiResult = null;
-  el('aiprompt').value = '';
+  // 状态行必须连错误一起清。
+  // 以前这里只清 aiResult 和文本，错误标记（err 类）留着 ——
+  // 上一条生成失败飘红，翻到下一条还红着，用户以为新这条也失败了。
   el('aistate').textContent = '';
+  el('aistate').className = 'aihint';
   render();
   renderAi();
+  reprefillPrompt();                // 同上
+}
+
+// 把输入框预填成当前条目的文件名（去掉扩展名、跑一遍标题清洗）。
+//
+// 为什么是文件名而不是曲名：文件名是**用户自己当初的命名**，往往比库里那个
+// 被截断/串味的曲名信息更全（「七月的草原 合唱」「您花开的样子 合唱」这类带
+// 编制/版本的尾巴都在这儿）。而且校对这个场景本来就是「拿文件名当线索去问」。
+//
+// 预填只是个提示，不是「已经问过了」：用户照样要自己点生成。生成出来的东西
+// 同样要走 looksRelated 那道闸、同样要逐字段勾选才进来 —— 预填不降低任何门槛。
+function promptFromFileName(fileName) {
+  const raw = String(fileName || '').trim();
+  if (!raw) return '';
+  const noExt = raw.replace(/\.pdf$/i, '');
+  return cleanTitle(noExt) || noExt;
+}
+// 上一次由**预填**写进去的那串（不是用户手写的），用来判断框里的字是谁写的。
+// 跟 Kotlin 侧 FixSession.lastPrefill 同一套语义。
+let lastPrefill = '';
+
+function prefillPrompt() {
+  const box = el('aiprompt');
+  if (!box) return;
+  if (box.value.trim()) return;       // 用户自己写过东西，别覆盖他
+  const next = promptFromFileName(ROWS[idx] && ROWS[idx].fileName);
+  box.value = next;
+  lastPrefill = next;
+}
+
+// 翻页后的重预填：换成新条目的预填，但**用户动过的字保住**。
+//
+// 不能复用 prefillPrompt —— 它的守卫是「有字就不动」，而翻页那一刻框里
+// 正好有上一条的预填，会被自己挡死（输入框永远停在第一条的文件名上）。
+// 改判「框里的字是不是就是我上次预填进去的那串」：
+//   等于 → 没人动过，换成新条目的
+//   不等 → 用户改过（**包括他把它整个删空了**），留着
+//
+// 删空也算动过。他删空说明他要自己写，这时候预填回去等于跟他抢。
+function reprefillPrompt() {
+  const box = el('aiprompt');
+  if (!box) return;
+  if (box.value !== lastPrefill) return;
+  const next = promptFromFileName(ROWS[idx] && ROWS[idx].fileName);
+  box.value = next;
+  lastPrefill = next;
 }
 
 function jumpUnhandled() {
@@ -855,20 +1023,30 @@ function buildCsv() {
   ROWS.forEach((r, i) => {
     // 用 entryOf，把 AI 送进来的候选项、存档回填值、手填值都合并上；
     // 不能直接用 propose，否则这些值导不出去（第 5、6 列的教训）
-    const { p } = entryOf(i);
+    const { p, blanked } = entryOf(i);
     const take = saved[r.fileName] || {};
     // 旧存档是数组（只记勾了哪些字段）；值是空的，导出时按重算出的建议值写
     const took = k => Array.isArray(take) ? take.indexOf(k) >= 0 : take[k] != null;
+    // 被要求清空的字段：**先**写空，后面所有 `??` 兜底都别再把它捞回来。
+    //
+    // 这里必须单独处理，不能指望 `p[k]` 为空 —— `p.title ?? r.title` 这种写法
+    // 在 p.title 是 undefined 时会**回落到原值**，也就是原封不动地导出。
+    // 于是「清空」在界面上一路绿灯，导出的 CSV 里那一格还是老样子，
+    // 而且用户看不出来（他会看到「已清空」的标记，以为已经生效了）。
+    const isBlank = k => !!(blanked && blanked.has(k));
     const cells = new Array(HEADER.length).fill('');
     cells[0] = r.fileName;
-    cells[1] = took('title') ? (p.title ?? r.title) : r.title;
-    cells[4] = took('composer') ? (p.composer ?? r.composer) : r.composer;
-    cells[5] = took('genre') ? (p.genre ?? r.genre) : r.genre;
-    cells[6] = took('tag') ? (p.tag ?? r.tag) : r.tag;
-    cells[7] = took('label') ? (p.label ?? r.label) : r.label;
-    cells[8] = took('ref') ? (p.ref ?? r.ref) : r.ref;
-    // 调性：采纳了才写，否则保持 CSV 原值
-    if (took('key') && p.key) {
+    cells[1] = isBlank('title') ? '' : (took('title') ? (p.title ?? r.title) : r.title);
+    cells[4] = isBlank('composer') ? '' : (took('composer') ? (p.composer ?? r.composer) : r.composer);
+    cells[5] = isBlank('genre') ? '' : (took('genre') ? (p.genre ?? r.genre) : r.genre);
+    cells[6] = isBlank('tag') ? '' : (took('tag') ? (p.tag ?? r.tag) : r.tag);
+    cells[7] = isBlank('label') ? '' : (took('label') ? (p.label ?? r.label) : r.label);
+    cells[8] = isBlank('ref') ? '' : (took('ref') ? (p.ref ?? r.ref) : r.ref);
+    // 调性：采纳了才写，否则保持 CSV 原值。清空时两列一起空 ——
+    // keysf/keymi 是一对，只写一列会留下半截调号让 forScore 认错。
+    if (isBlank('key')) {
+      cells[13] = ''; cells[14] = '';
+    } else if (took('key') && p.key) {
       const km = keyToSfMi(p.key);
       if (km) { cells[13] = String(km.keysf); cells[14] = String(km.keymi); }
     }
@@ -892,6 +1070,10 @@ el('export').onclick = exportCsv;
 el('reset').onclick = () => {
   // 只清进度，**不清「用过的值」** —— 那是攒出来的个人词表，清掉等于白敲。
   saved = {}; typed = {}; idx = 0; draft = new Set(); persist(); render();
+  // 输入框也要跟着回到第 1 条。lastPrefill 一起抹掉 ——
+  // 用户如果手改过提示词，reprefillPrompt 会认为「这不是我写的」而不动它；
+  // 但清空存档是「从头再来」的意思，手写痕迹也该一起走。
+  el('aiprompt').value = ''; lastPrefill = ''; prefillPrompt();
 };
 document.addEventListener('keydown', ev => {
   if (ev.key === 'ArrowLeft') go(-1);
@@ -905,6 +1087,22 @@ document.addEventListener('keydown', ev => {
 const AI_KEY = 'fix-demo-ai-v2';
 let aiResult = null;       // 最近一次生成结果
 let aiBusy = false;
+let aiCollapsed = false;   // 结果区折叠态（针对某一条结果，翻页/重生成都复位）
+
+// 「只填了曲名、其余四项全空」——这个形态必须单独认出来。
+//
+// 它跟「认出了这首曲子但只有曲名确定」长得一模一样，意思却相反：
+// 曲名往往是模型把**用户刚敲进去的那行字**原样抄了一遍，零信息量。
+// 真机上（gemini-3.8-flash）就这么干过：用户看到蓝条「识别完成」+
+// 孤零零一行曲名，以为 AI 认出了这首曲子、只是信息少，照着存下去。
+//
+// 刻意**不**拿曲名去跟用户输入做字符串比对：提示词可能被用户改过、
+// 模型也可能顺手做了归一化（「月光」→「月光奏鸣曲」），比不中反而漏判。
+// 保守一点：四项全空就直接当没认出，宁可多提醒一句。
+function aiTitleOnly(r) {
+  return !!r && !r.unknown && !!r.title
+    && !r.composer && !r.instr && !r.genre && !r.key;
+}
 
 function aiFieldRows(r) {
   return [
@@ -942,6 +1140,145 @@ function looksRelated(originalTitle, aiTitle) {
   return false;
 }
 
+// ================= 联网兜底（方案 B：App 自己搜，把资料喂回模型） =================
+//
+// 为什么是「App 自己搜」而不是换自带联网的模型：换联网模型等于换服务商 +
+// 逐家适配开关，Gemini 的 OpenAI 兼容端点用不了它的搜索接地。自己搜只有一次
+// POST，模型随便换。真机上走 Tavily（api.tavily.com/search，免费 1000 次/月）。
+//
+// 语义（这些是规格，Compose 照抄）：
+//  1. 只有**单条**生成会兜底，批量永不联网 —— 549 条每条多一搜一问，又慢又贵。
+//  2. 只在「第一遍没认出」时触发：整条空（unknown）或只回了曲名（titleOnly）。
+//     认出来了（哪怕字段不全）不搜 —— 那是正常回答，联网反而容易画蛇添足。
+//  3. 每次生成只搜**一轮**：搜索 → 带着资料二问。二问仍不认得就明说，不三问。
+//  4. 搜回来的结果**照样过闸门**（looksRelated / titleOnly / 清洗）——
+//     联网不是通行证，搜到同名电影、同名诗集都不算数。
+//  5. 结果区必须标**来源**（域名）。用户得能自己判断可信度，不能只给结论。
+//  6. 搜不到就老实说「联网也没找到」，绝不硬编。
+//  7. 搜索期间用户翻了页，结果必须作废 —— 那是给上一条查的，不能落到新条上。
+//  8. 二问的资料规则是「**先抄事实、再判断**」（1.14 真机教训）：资料标题/摘要里
+//     写明的作曲家、作品归属**照实抄进答案不算猜**；禁止补的只限「资料里没有的」。
+//     资料只确认了曲名、没有任何归属信息 → 仍回 []（titleOnly 照旧不合法）。
+//     摘要真机截 300 字符 —— 作曲家归属常在摘要后半段，160 那版把 Donizetti
+//     截掉了，模型读不到就只敢再抄一遍曲名。
+
+const SEARCH_KEY = 'fix-demo-search-v1';
+let searchOn = true;
+try { searchOn = localStorage.getItem(SEARCH_KEY) !== '0'; } catch (e) {}
+
+let aiSearching = false;   // 正在联网搜索（此时结果区显示「搜索中」）
+let lastQuery = '';        // 最近一次点生成用的提示词，手动「再搜一次」靠它
+
+// 谁该触发兜底：整条没认出，或只回了曲名（见 aiTitleOnly —— 那也不算认出）
+function searchFallbackEligible(r) {
+  return !!r && (!!r.unknown || aiTitleOnly(r));
+}
+
+// 搜索词：优先框里的字（用户可能写了「七月的草原 合唱」这种全名），
+// 空了退回文件名清洗结果。
+function buildSearchQuery(prompt, fileName) {
+  const p = String(prompt || '').trim();
+  if (p) return p;
+  return promptFromFileName(fileName);
+}
+
+// ---- 演示用「搜索引擎」。真机换成 Tavily 的 JSON 响应，数据结构一致：----
+// hits: { t: 标题, s: 摘要, d: 域名 }；reject: 有资料但对不上 → 二问仍回 unknown
+const SEARCH_SIM = [
+  { q: /七月的草原/,
+    hits: [
+      { t: '七月的草原_百度百科', s: '《七月的草原》是内蒙古民歌，词曲佚名，后被改编为合唱曲目，多见于中小学音乐教材。', d: 'baike.baidu.com' },
+      { t: '七月的草原 合唱谱_曲谱网', s: '七月的草原 内蒙古民歌 合唱谱 降E大调。', d: 'www.qupu123.com' },
+    ],
+    result: { foreign: false, title: '七月的草原', composer: '内蒙古民歌', instr: '声乐', key: 'bE', genre: '民歌', note: '联网查到：内蒙古民歌，常作合唱' } },
+  // 真机踩过的案例：搜得到歌词页，但资料本身给不出作曲家 —— 二问必须明说认不出
+  { q: /边境的小鸟/,
+    hits: [
+      { t: '边境的小鸟 歌词页', s: '边境的小鸟 歌词，未标注词曲作者信息。', d: 'mojim.com' },
+    ],
+    reject: true },
+  // 4 条命中 → 来源列表截到 3 条（演示截断规则）
+  { q: /茉莉芬芳/,
+    hits: [
+      { t: '茉莉芬芳_百度百科', s: '《茉莉芬芳》由何仿根据江苏民歌《茉莉花》改编，古筝与声乐均有版本。', d: 'baike.baidu.com' },
+      { t: '茉莉芬芳 古筝谱_曲谱网', s: '茉莉芬芳 何仿曲 古筝独奏谱。', d: 'www.qupu123.com' },
+      { t: '茉莉芬芳 演奏视频', s: '茉莉芬芳 何仿 曲。', d: 'www.bilibili.com' },
+      { t: '求谱帖_贴吧', s: '谁有茉莉芬芳的谱子？', d: 'tieba.baidu.com' },
+    ],
+    result: { foreign: false, title: '茉莉芬芳', composer: '何仿（改编）', instr: '古筝', key: 'bE', genre: '民族器乐曲', note: '联网查到：何仿据江苏民歌改编' } },
+  // 1.14 真机案例：Bella siccome un angelo（《唐帕斯夸莱》选段）。第一遍只回曲名；
+  // 资料页标题里明明写着 Donizetti，旧版二问提示词却教模型「别按曲名猜」，
+  // 它就把曲名又抄了一遍。新规则下归属信息照实抄 → 作曲家填得出。
+  { q: /bella siccome/i,
+    hits: [
+      { t: 'Bella siccome un angelo — Don Pasquale (Donizetti)',
+        s: 'Aria "Bella siccome un angelo" from the opera Don Pasquale by Gaetano Donizetti, sung by Dr. Malatesta in Act Two. 常见中译「像天使一样美丽」。',
+        d: 'www.opera-arias.com' },
+      { t: 'Bella siccome un angelo (Don Pasquale) - text & translations',
+        s: 'Bella siccome un angelo, aria from Don Pasquale, music by Gaetano Donizetti.',
+        d: 'www.lieder.net' },
+      { t: '像天使一样美丽 乐谱_曲谱网',
+        s: '多尼采蒂《唐帕斯夸莱》选段「像天使一样美丽」声乐谱。',
+        d: 'www.qupu123.com' },
+    ],
+    result: { foreign: true, title: 'Bella siccome un angelo', composer: 'Gaetano Donizetti', instr: 'Voice', key: '', genre: 'Aria', note: '联网查到：多尼采蒂《唐帕斯夸莱》选段' } },
+];
+
+function simSearch(q) {
+  for (const e of SEARCH_SIM) if (e.q.test(q)) return e;
+  return null;
+}
+
+// 来源域名最多 3 条 —— 列一排链接没人看，三条足够定位
+function sourcesOf(entry) {
+  return entry.hits.map(h => h.d).slice(0, 3);
+}
+
+// 兜底的**同步核心**（UI 只包一层延迟动画；回归测试直接调这个）。
+// 二问（真机上是带着资料的第二遍模型调用）在这里模拟为：
+// 有条目且条目给了结论 → 采信，挂 via:'search' + sources；
+// 没条目，或条目声明「资料对不上」（reject）→ 仍然 unknown，挂 searched 标记。
+function applySearchFallback(q) {
+  const entry = simSearch(q);
+  if (!entry) return { result: { unknown: true, searched: true }, sources: [] };
+  if (entry.reject) {
+    return {
+      result: { unknown: true, searched: true, searchNote: '搜到了资料，但都对不上这一条，不敢下结论。' },
+      sources: sourcesOf(entry),
+    };
+  }
+  const sources = sourcesOf(entry);
+  return { result: Object.assign({}, entry.result, { via: 'search', sources }), sources };
+}
+
+// 兜底的 UI 流程。at = 触发时的行号：搜索回来的路上用户翻了页，
+// 结果属于上一条，必须丢弃 —— 绝不能把 A 条搜回来的东西落到 B 条头上。
+function runSearchFallback(q) {
+  if (aiSearching) return;
+  const query = buildSearchQuery(q, ROWS[idx] && ROWS[idx].fileName);
+  lastQuery = q;
+  aiSearching = true;
+  aiCollapsed = false;
+  const at = idx;
+  renderAi();
+  setTimeout(() => {
+    aiSearching = false;
+    if (at !== idx) return;
+    const fb = applySearchFallback(query);
+    aiResult = fb.result;
+    try { localStorage.setItem(AI_KEY, JSON.stringify({ prompt: lastQuery, result: aiResult })); } catch (e) {}
+    renderAi();
+  }, 420);
+}
+
+function renderSearchToggle() {
+  const t = el('aisearchtoggle');
+  t.className = 'aitoggle' + (searchOn ? '' : ' off');
+  t.title = searchOn
+    ? '联网兜底：开 —— 没认出时自动搜一次网页资料再问一遍'
+    : '联网兜底：关 —— 「没认出」黄条上会有「联网搜一次」手动键';
+}
+
 function renderAi() {
   const p = el('aipanel');
   const btn = el('aigo');
@@ -950,24 +1287,72 @@ function renderAi() {
   btn.className = 'aigo' + (aiBusy ? ' busy' : '');
 
   if (!aiResult) { p.className = 'aiout'; p.innerHTML = ''; return; }
+
+  // 折叠态：整块收掉，只留一行「结果已收起：<曲名>」+ 展开键。
+  //
+  // 收起之后必须还看得见这条结果说的是哪首曲子 —— 翻了几条回来，
+  // 用户容易忘了这行是谁的。
+  if (aiCollapsed) {
+    p.className = 'aiout on collapsed';
+    p.innerHTML = '<div class="aicollapsed">'
+      + '<div class="aicolltitle">结果已收起：' + esc(aiResult.title || '（无曲名）') + '</div>'
+      + '<div class="aimini" id="aiexpand">展开</div>'
+      + '</div>';
+    el('aiexpand').onclick = () => { aiCollapsed = false; renderAi(); };
+    return;
+  }
+
+  // 联网搜索中：aiResult 此刻还是第一遍的（unknown/titleOnly），不画它 ——
+  // 免得先闪一下「没认出」再变成「搜索中」，两个状态打架。
+  if (aiSearching) {
+    p.className = 'aiout on';
+    p.innerHTML = '<div class="ainote">第一遍没认出，正在联网搜索资料…</div>';
+    return;
+  }
+
   p.className = 'aiout on';
 
   if (aiResult.unknown) {
-    p.innerHTML = '<div class="ainote warn">没认出这首曲子。曲名写全一点，或补上作曲家和作品号再试。</div>'
-      + '<div class="aiacts"><div class="aimini" id="aicopy">复制不了</div></div>';
+    // searched 标记来自上一轮联网兜底 —— 措辞要跟「压根没搜过」分开：
+    // 用户得知道联网这条路已经试过了，再试意义不大，除非他改了曲名。
+    const note = aiResult.searched
+      ? '联网也没认出这首曲子'
+        + (aiResult.searchNote ? ' —— ' + aiResult.searchNote : '，资料里没有可靠信息')
+        + '。曲名写全一点，或补上作曲家和作品号再试。'
+      : '没认出这首曲子。曲名写全一点，或补上作曲家和作品号再试。';
+    p.innerHTML = '<div class="ainote warn">' + note + '</div>'
+      + '<div class="aiacts"><div class="aimini" id="aisearch">'
+      + (aiResult.searched ? '再搜一次' : '联网搜一次') + '</div></div>';
+    el('aisearch').onclick = () => runSearchFallback(lastQuery || el('aiprompt').value);
     return;
   }
 
   const orig = ROWS[idx].title;
   const mismatch = !looksRelated(orig, aiResult.title);
+  const titleOnly = aiTitleOnly(aiResult);
 
   let html = '';
   if (mismatch) {
     html += '<div class="ainote warn">生成的是「' + esc(aiResult.title) + '」，但这一条原本叫「'
           + esc(orig) + '」。对不上就别存，会把这条改坏。</div>';
+  } else if (titleOnly) {
+    // 「只认出曲名」不能说成「识别完成」——见 aiTitleOnly 的注释。
+    html += '<div class="ainote warn">只认出曲名，其余四项模型没给出 —— '
+          + '曲名可能只是把你写的字原样抄回来，不代表它认得这首曲子。其余字段自己填更稳。</div>';
+    // titleOnly 与 unknown 同等资格给手动联网键：自动兜底开着时多半已经搜过，
+    // 搜完还是这形态就留个「再搜一次」让用户改了词再试。
+    html += '<div class="aiacts"><div class="aimini" id="aisearch">'
+          + (aiResult.searched ? '再搜一次' : '联网搜一次') + '</div></div>';
   } else {
     html += '<div class="ainote">' + esc(aiResult.note) + '</div>';
   }
+  // 来源行：联网查来的结果必须亮出依据 —— 可信度用户自己把关，App 不背书
+  if (aiResult.via === 'search' && aiResult.sources && aiResult.sources.length) {
+    html += '<div class="aisrc">依据：' + aiResult.sources.map(esc).join(' · ') + '</div>';
+  }
+  // 结果行**限高可滚**。五行长值能到 200px 以上，把下面的字段区挤没；
+  // 键盘一弹更糟。这里给个上限，超出在块内滚，不侵占字段区。
+  html += '<div class="airows">';
   for (const [k, v] of aiFieldRows(aiResult)) {
     // 空字段**整行不画**，而不是画一行「（未给出）」。
     //
@@ -979,11 +1364,16 @@ function renderAi() {
     html += '<div class="r"><div class="k">' + k + '</div><div class="v">'
           + esc(v) + '</div></div>';
   }
+  html += '</div>';
   html += '<div class="aiacts">'
+        + '<div class="aimini" id="aicollapse">收起</div>'
+        + '<div class="aigrow"></div>'
         + '<div class="aimini" id="aicopy">复制</div>'
         + '<div class="aimini pri" id="aistore">填入本条</div>'
         + '</div>';
   p.innerHTML = html;
+
+  el('aicollapse').onclick = () => { aiCollapsed = true; renderAi(); };
 
   el('aicopy').onclick = () => {
     const s = aiFieldRows(aiResult).map(([k, v]) => k + '：' + (v || '')).join('\n');
@@ -998,7 +1388,15 @@ function renderAi() {
       title: aiResult.title, composer: aiResult.composer, tag: aiResult.instr,
       genre: aiResult.genre, key: aiResult.key,
     };
-    draft = new Set(['title', 'composer', 'tag', 'genre', 'key']);
+    // 只勾「AI 真给了值」的字段，别五个一起勾。
+    //
+    // 跟批量那条同一道理：勾上一个没有候选值的字段，用户再点它的勾选框
+    // 走的是**取消勾选**分支 —— 他以为在「选上」，其实点了个取消，语义反了。
+    // （真机上「只认出曲名」那种结果，四个空字段全被盲勾过。）
+    draft = new Set(FIELDS.filter(f => {
+      const v = aiInjected[idx][f.k];
+      return v != null && v !== '';
+    }).map(f => f.k));
     persist();
     render();
     el('aistate').textContent = '已填入，下面勾选后「采纳并继续」';
@@ -1006,19 +1404,33 @@ function renderAi() {
 }
 
 el('aigo').onclick = () => {
+  if (aiSearching) return;            // 搜索中不接受叠加的生成请求
   const q = el('aiprompt').value;
   if (!q.trim()) { el('aistate').textContent = '先写点什么'; el('aistate').className = 'aihint err'; return; }
   aiBusy = true;
+  aiCollapsed = false;               // 重新生成 → 展开，否则新结果直接显示成收起的
+  aiSearching = false;
   el('aistate').textContent = '';
   el('aistate').className = 'aihint';
   renderAi();
   setTimeout(() => {
     aiResult = aiGenerate(q);
     aiBusy = false;
+    lastQuery = q;
     try { localStorage.setItem(AI_KEY, JSON.stringify({ prompt: q, result: aiResult })); } catch (e) {}
     renderAi();
+    // 联网兜底：第一遍没认出 → 自动搜一轮、带着资料再问一遍。
+    // 提示词带「不联网」是演示钩子，让 titleOnly / unknown 的原始形态也能演示到。
+    if (searchOn && searchFallbackEligible(aiResult) && !/不联网/.test(q)) runSearchFallback(q);
   }, 260);
 };
+
+el('aisearchtoggle').onclick = () => {
+  searchOn = !searchOn;
+  try { localStorage.setItem(SEARCH_KEY, searchOn ? '1' : '0'); } catch (e) {}
+  renderSearchToggle();
+};
+renderSearchToggle();
 
 el('aiprompt').addEventListener('keydown', ev => {
   if (ev.key === 'Enter') { ev.preventDefault(); el('aigo').onclick(); }
@@ -1026,6 +1438,7 @@ el('aiprompt').addEventListener('keydown', ev => {
 });
 
 renderAi();
+prefillPrompt();          // 开场就把输入框预填成第一条的文件名
 
 render();
 </script>

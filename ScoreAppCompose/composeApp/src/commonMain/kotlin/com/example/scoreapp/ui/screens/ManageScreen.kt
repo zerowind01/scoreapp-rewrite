@@ -13,7 +13,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -25,6 +27,9 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,6 +40,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.scoreapp.domain.ComposerNames
+import com.example.scoreapp.domain.netdisk.Netdisk
 import com.example.scoreapp.domain.LibraryQuery
 import com.example.scoreapp.model.FilterDim
 import com.example.scoreapp.model.Score
@@ -71,7 +77,8 @@ fun ManageScreen(
         }
 
         when (state.libraryTab) {
-            LibraryTab.Scores -> ScoresTab(state, bottomPadding)
+            LibraryTab.Local -> ScoresTab(state, bottomPadding)
+            LibraryTab.Netdisk -> NetdiskScoresTab(state, bottomPadding)
             LibraryTab.Sets -> SetsTab(state, bottomPadding)
         }
     }
@@ -90,12 +97,12 @@ private fun LibraryTopBar(state: ScoreAppState) {
     ) {
         Row(
             verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             LibraryTab.entries.forEach { tab ->
                 Text(
                     text = tab.label,
-                    fontSize = 27.sp,
+                    fontSize = 23.sp,
                     fontWeight = FontWeight.ExtraBold,
                     letterSpacing = (-0.6).sp,
                     color = if (state.libraryTab == tab) Tokens.Text1 else Tokens.TabInactive,
@@ -354,6 +361,169 @@ private fun ActiveFilterChip(text: String, onRemove: () -> Unit) {
                 tint = Tokens.Text2,
                 modifier = Modifier.size(9.dp),
             )
+        }
+    }
+}
+
+
+// ---------------------------------------------------------------- 网盘子页
+//
+// 与「本机」分成两个标签页的原因：网盘条目要联网才看得到，
+// 混在一张列表里会让人分不清哪份能离线打开。同步条与绑定行只在这一页出现。
+
+@Composable
+private fun NetdiskScoresTab(state: ScoreAppState, bottomPadding: Dp) {
+    val scope = rememberCoroutineScope()
+    // 进这一页自动同步一次（节流窗口内不会重复拉）
+    LaunchedEffect(Unit) { state.syncNetLibrary(false) }
+
+    val scores = state.visibleScores
+
+    Column(Modifier.fillMaxSize()) {
+        NetSyncBar(
+            text = state.netSyncText,
+            busy = state.netSyncing,
+            failed = state.netSyncError != null,
+            onSync = { scope.launch { state.syncNetLibrary(true) } },
+        )
+        if (state.netBound.isNotEmpty()) BoundChips(state)
+        Spacer(Modifier.height(4.dp))
+
+        if (scores.isEmpty()) {
+            EmptyState(
+                icon = AppIcons.Book,
+                title = if (state.netBound.isEmpty()) "还没绑定文件夹" else "这个文件夹里还没有 PDF",
+                message = if (state.netBound.isEmpty()) {
+                    "到「我的 → 网盘」里进到一个文件夹，点「绑定此文件夹」"
+                } else {
+                    "只收这个文件夹当前层的 PDF，子目录里的不进"
+                },
+            )
+            return@Column
+        }
+
+        if (state.grid) {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = 16.dp, end = 16.dp, top = 4.dp, bottom = bottomPadding + 16.dp,
+                ),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                items(scores, key = { it.id }) { score -> NetScoreCard(state, score, compact = true) }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = 16.dp, end = 16.dp, top = 4.dp, bottom = bottomPadding + 16.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(11.dp),
+            ) {
+                items(scores, key = { it.id }) { score -> NetScoreCard(state, score) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NetScoreCard(state: ScoreAppState, score: Score, compact: Boolean = false) {
+    ScoreCard(
+        score = score,
+        onOpen = { state.openDetail(score) },
+        onEdit = { state.openEditor(score) },
+        onView = { state.openPdf(score) },
+        onShare = { state.share(score) },
+        // 「已缓存 / 下载中 / 需下载」：文件本体不长期保留，不写清楚会以为点了没反应
+        badge = state.netBadgeOf(score),
+        compact = compact,
+    )
+}
+
+/** 同步条：一眼知道列表是哪来的、多久前的 */
+@Composable
+private fun NetSyncBar(text: String, busy: Boolean, failed: Boolean, onSync: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(if (failed) Tokens.DangerBg else Tokens.Surface)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(7.dp)
+                .clip(CircleShape)
+                .background(
+                    when {
+                        failed -> Tokens.DangerFg
+                        busy -> Tokens.Text3
+                        else -> Tokens.PillLive
+                    },
+                ),
+        )
+        Text(
+            text = text,
+            fontSize = 11.sp,
+            color = Tokens.Text2,
+            maxLines = 2,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = if (busy) "同步中" else "立即同步",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = Tokens.LinkBlue,
+            modifier = Modifier.clickable(enabled = !busy, onClick = onSync),
+        )
+    }
+}
+
+/** 已绑定的文件夹，点 × 解绑 */
+@Composable
+private fun BoundChips(state: ScoreAppState) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        state.netBound.forEach { path ->
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Tokens.Surface)
+                    .padding(start = 11.dp, end = 8.dp, top = 5.dp, bottom = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = Netdisk.baseName(path),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Tokens.Text1,
+                    maxLines = 1,
+                )
+                Box(
+                    modifier = Modifier
+                        .size(16.dp)
+                        .clip(CircleShape)
+                        .background(Tokens.Surface3)
+                        .clickable { state.toggleBind(path) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = AppIcons.Close,
+                        contentDescription = "解绑",
+                        tint = Tokens.Text2,
+                        modifier = Modifier.size(9.dp),
+                    )
+                }
+            }
         }
     }
 }

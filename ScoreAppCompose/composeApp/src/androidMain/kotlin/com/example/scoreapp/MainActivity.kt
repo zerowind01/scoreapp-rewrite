@@ -63,6 +63,15 @@ class MainActivity : ComponentActivity() {
             // 不该阻塞首帧；封面在拿到路径前先走程序化绘制，拿到后自动重画。
             LaunchedEffect(Unit) {
                 state.installBundledScores()
+                // AI 设置也在这里读一次（同样是读盘）。晚一帧没关系 ——
+                // 用户不可能在首帧就去点校对页的「生成」。
+                state.loadAiConfig()
+                // 网盘连接配置同理：读盘不该阻塞首帧
+                state.loadNetdiskConfig()
+                // 乐谱库存档（网盘条目 + 改过的元数据 + 导入的谱子）。
+                // **必须在 installBundledScores 之后**：内置谱要按解析后的 assetPdf 认人，
+                // 早一步会认不出、把上次改过的元数据丢掉。
+                state.loadLibraryStore()
             }
 
             // 相册多选。走系统的照片选择器（Photo Picker），**不申请任何相册权限**：
@@ -133,6 +142,8 @@ class MainActivity : ComponentActivity() {
                     state.reader != null -> state.closePdf()
                     state.sheet != SheetKind.None -> state.closeSheet()
                     state.detail != null -> state.closeDetail()
+                    // 网盘设置是盖在浏览页上的面板，先收它再谈退出这一页
+                    state.netdiskSetupOpen -> state.closeNetdiskSetup()
                     else -> state.back()
                 }
             }

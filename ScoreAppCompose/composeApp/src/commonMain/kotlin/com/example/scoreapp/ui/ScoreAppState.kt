@@ -8,9 +8,31 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.example.scoreapp.data.SampleLibrary
 import com.example.scoreapp.domain.ComposerNames
 import com.example.scoreapp.domain.LibraryQuery
-import com.example.scoreapp.domain.csvfix.AiField
 import com.example.scoreapp.domain.csvfix.AiFill
+import com.example.scoreapp.domain.csvfix.FixStore
+import com.example.scoreapp.domain.csvfix.FixStoreHolder
 import com.example.scoreapp.domain.csvfix.LibraryAdapter
+import com.example.scoreapp.domain.csvfix.SearchFallback
+import com.example.scoreapp.domain.netdisk.Netdisk
+import com.example.scoreapp.domain.netdisk.NetdiskCached
+import com.example.scoreapp.domain.netdisk.NetdiskConfig
+import com.example.scoreapp.domain.netdisk.NetdiskEntry
+import com.example.scoreapp.domain.csvfix.MiniJson
+import com.example.scoreapp.domain.library.ImportedScore
+import com.example.scoreapp.domain.library.LocalStore
+import com.example.scoreapp.domain.library.applyLocalMeta
+import com.example.scoreapp.domain.library.saveLocalMeta
+import com.example.scoreapp.domain.library.scoreKeyOf
+import com.example.scoreapp.domain.library.toScore
+import com.example.scoreapp.domain.netdisk.NetLibItem
+import com.example.scoreapp.domain.netdisk.NetOpenRequest
+import com.example.scoreapp.domain.netdisk.NetLibStore
+import com.example.scoreapp.domain.netdisk.NetLibrary
+import com.example.scoreapp.domain.netdisk.NetSyncState
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import com.example.scoreapp.domain.netdisk.RemoteDir
+import com.example.scoreapp.domain.netdisk.SYNC_THROTTLE_MS
 import com.example.scoreapp.domain.formatBytes
 import com.example.scoreapp.model.FilterDim
 import com.example.scoreapp.model.FilterState
@@ -23,15 +45,17 @@ import com.example.scoreapp.util.AiConfig
 import com.example.scoreapp.util.FileBridge
 import com.example.scoreapp.util.StorageUsage
 import com.example.scoreapp.util.createAiBridge
+import com.example.scoreapp.util.createSearchBridge
+import com.example.scoreapp.util.createNetdiskBridge
 import com.example.scoreapp.util.nowMillis
 import com.example.scoreapp.util.nowStamp
 import com.example.scoreapp.util.toShareInfo
 
 /** 当前展开的底部弹层 */
-enum class SheetKind { None, Filter, Import, Edit, Sort, SetDetail, More, FixAi }
+enum class SheetKind { None, Filter, Import, Edit, Sort, SetDetail, More }
 
 /** 乐谱库页内的两个子页签 */
-enum class LibraryTab(val label: String) { Scores("乐谱库"), Sets("合集") }
+enum class LibraryTab(val label: String) { Local("本机"), Netdisk("网盘"), Sets("合集") }
 
 /**
  * 导入弹层里用户点了哪一条，等待系统选择器返回。
@@ -159,14 +183,10 @@ class ScoreAppState {
     val searchOpen: Boolean
         get() = if (activeTab == RootTab.Composers) composerSearchOpen else librarySearchOpen
 
-    var libraryTab by mutableStateOf(LibraryTab.Scores)
+    var libraryTab by mutableStateOf(LibraryTab.Local)
     var groupBy by mutableStateOf(FilterDim.Composer)
     var grid by mutableStateOf(false)
     var sort by mutableStateOf(SortMode.Composer)
-
-    /** 「自动识别元数据」开关（「我的」页设置项）。默认开启，与原型一致。 */
-    var aiOn by mutableStateOf(true)
-        private set
 
     var filters by mutableStateOf(FilterState.EMPTY)
         private set
@@ -245,33 +265,73 @@ class ScoreAppState {
     val fixOpen: Boolean get() = fixSession != null
 
     /**
-     * AI 设置。**刻意只存在内存里、不落盘**：
-     * 密钥落盘就要考虑加密与备份泄漏，而这是个自用工具，
-     * 每次开 App 重填一次的代价远小于把密钥留在设备上的风险。
+     * AI 设置。**随校对存档落盘**（见 [FixStore.ai]），不是只存内存。
+     *
+     * 早先这里写的是「刻意只存在内存里、每次启动重填」——那个取舍在
+     * **逐条翻阅**的模型出现之后就不成立了：一屏一条、几百条要过，
+     * 用户随时可能点「生成」，每次冷启动都重输地址 + 密钥 + 模型等于把这个
+     * 功能废掉一半。现在改成明文落盘（`filesDir/fix-store.json` 的 `ai` 段），
+     * 并在设置页界面上明确告知用户。
+     *
+     * 启动时由 [loadAiConfig] 从存档读一次；改设置时由 [saveAiConfig] 写回。
      */
     var aiConfig by mutableStateOf(AiConfig())
         private set
 
-    /** AI 弹层里用户在编辑的提示词；null 表示还没动过（用默认值） */
-    var aiPrompt by mutableStateOf<String?>(null)
+    /**
+     * 逐条校对的**跨会话存档**。
+     *
+     * 它读写的实现来自 [FileBridge]（`filesDir/fix-store.json`），而逻辑全在
+     * [FixStoreHolder] 里 —— 这样「翻到哪一条、采纳了哪些字段」这套逻辑
+     * 可以在 commonTest 里脱离 Android 运行时验证。
+     *
+     * 桥还没注入时（单元测试、或 App 启动的极早期）退化成纯内存存档：
+     * 功能不缺，只是关掉 App 就没了。
+     */
+    private val fixStoreHolder = FixStoreHolder(
+        read = { bridge?.readFixStore() },
+        write = { json -> bridge?.writeFixStore(json) ?: false },
+    )
 
     /**
-     * AI 调用的进行状态，用于按钮禁用与转圈。
+     * 从存档里读一次 AI 设置。
      *
-     * 这几个 AI 状态属性**不设 `private set`**：它们的写入方就是弹层
-     * （转圈由弹层发起、错误由弹层展示），包一层 `setAiXxx()` 只会
-     * 与属性自身生成的 setter 撞 JVM 签名（`setAiBusy(Z)V`）。
+     * 由 `MainActivity` 在启动时调用一次（读盘是阻塞 I/O，不该写在构造器里）。
+     * 读不到（首次安装、老存档没有 `ai` 段、文件损坏）时保持默认值 ——
+     * 那时「未配置」，用户去设置页填一次即可。
      */
-    var aiBusy by mutableStateOf(false)
+    fun loadAiConfig() {
+        aiConfig = fixStoreHolder.load().ai
+    }
 
-    /** 上一次 AI 调用失败的原因；成功或关闭弹层时清空 */
-    var aiError by mutableStateOf<String?>(null)
+    /** 打开 AI 设置页 */
+    fun openAiSetup() {
+        push(Screen.AiSetup)
+    }
 
-    /** 用户手动粘贴进来的回答（「手动粘贴」那条路） */
-    var aiPaste by mutableStateOf("")
+    /** 关闭 AI 设置页 */
+    fun closeAiSetup() {
+        if (navStack.lastOrNull() == Screen.AiSetup && navStack.size > 1) back()
+    }
 
-    /** 最近一次 AI 落地产生了几条改动，用于提示文案 */
-    var aiLastApplied by mutableStateOf(0)
+    /**
+     * 保存 AI 设置。
+     *
+     * **写进 [FixStore] 而不是单开一个文件**：那份存档本来就要读一次
+     * （开校对会话时），顺手把它读出来、改掉 `ai` 段、再整体写回去，
+     * 复用已有的桥通道与 JSON 编解码，不新增任何 I/O 路径。
+     *
+     * 注意这里**先 load 再改再 update**：直接用内存里那份 [fixStoreHolder.value]
+     * 会丢掉「用户上次翻到第几条」——那个值只在开校对会话时才被写进 holder，
+     * 而用户完全可能先开设置页、再去开校对页。
+     */
+    fun saveAiConfig(config: AiConfig) {
+        val merged = fixStoreHolder.load().copy(ai = config)
+        val ok = fixStoreHolder.update(merged)
+        aiConfig = config
+        showToast(if (ok) "已保存" else "保存失败，配置只在本次运行有效")
+        closeAiSetup()
+    }
 
     /** 开一次校对会话，来源为 forScore CSV 文本 */
     fun openFixFromCsv(text: String) {
@@ -279,12 +339,22 @@ class ScoreAppState {
             showToast("这个文件是空的")
             return
         }
-        fixSession = FixSession.fromCsv(text)
-        if (fixSession?.entries?.isEmpty() == true) {
-            fixSession = null
+        val store = fixStoreHolder.load()
+        val session = FixSession.fromCsv(text, store = store)
+        if (session.total == 0) {
             showToast("CSV 里没有数据行")
             return
         }
+        // 换了批次（换了一份 CSV、条数对不上）就从头翻，但采纳记录保留 ——
+        // 用户可能只是重新导出了同一批数据，那些决定不该丢
+        val batch = FixStore.batchKeyOf("csv", session.rawRows)
+        if (store.batchKey.isNotEmpty() && store.batchKey != batch && store.cursor >= session.total) {
+            session.goTo(0)
+        }
+        // 把接口设置交给会话 —— 不注入的话，用户在设置页填的地址与密钥
+        // 在校对页根本不会被用到（生成时仍拿默认地址和空密钥去请求）
+        session.aiConfig = aiConfig
+        fixSession = session
         push(Screen.Fix)
     }
 
@@ -294,54 +364,252 @@ class ScoreAppState {
             showToast("曲库是空的")
             return
         }
-        fixSession = FixSession.fromLibrary(allScores.toList())
+        val store = fixStoreHolder.load()
+        val session = FixSession.fromLibrary(allScores.toList(), store = store)
+        val batch = FixStore.batchKeyOf("lib", session.rawRows)
+        if (store.batchKey.isNotEmpty() && store.batchKey != batch && store.cursor >= session.total) {
+            session.goTo(0)
+        }
+        session.aiConfig = aiConfig
+        fixSession = session
         push(Screen.Fix)
     }
 
+    /**
+     * 关掉校对页。
+     *
+     * 关之前**必须落盘**：跨会话存档的意义就是「用户随时可以退出」，
+     * 而 Android 上的退出不一定是走返回键（可能是切后台后被系统回收），
+     * 所以不能只在导出时才写。
+     */
     fun closeFix() {
+        fixSession?.let { persistFixStore(it) }
         fixSession = null
-        aiError = null
-        aiPaste = ""
-        aiPrompt = null
         // 退掉校对页；只有当它确实在栈顶时才弹（栈底不可弹，否则会空栈）
         if (navStack.lastOrNull() == Screen.Fix && navStack.size > 1) back()
     }
 
-    fun updateAiConfig(config: AiConfig) {
-        aiConfig = config
+    /**
+     * 把当前会话的存档写下去。
+     *
+     * 写之前**把 `ai` 段并回去**：会话手里的 `store` 是从 holder 读出来的那份，
+     * 其中 `ai` 是当时的值；如果用户中途去设置页改了配置，直接用会话的 store
+     * 覆盖会把新配置改回旧的。这里以 holder 里的 `ai` 为准。
+     */
+    fun persistFixStore(session: FixSession) {
+        fixStoreHolder.update(session.store.copy(ai = aiConfig))
     }
 
-    fun openFixAi() {
-        aiError = null
-        sheet = SheetKind.FixAi
+    /** 清空存档（顶栏那三个工具里的一个） */
+    fun clearFixStore() {
+        val session = fixSession
+        // 桥不可用时也要清掉内存里那份，否则用户点了没反应
+        bridge?.clearFixStore()
+        fixStoreHolder.clear()
+        session?.resetStore()
+        showToast("已清空存档")
     }
 
     /**
-     * 把当前要问的提示词**连同数据**复制到剪贴板。
+     * 单条生成：用户在顶部 AI 条里写一个曲名，让模型补出这一条的五个字段。
      *
-     * 复制的是完整的对话消息（含那一批乐谱数据），不是光秃秃的提示词 ——
-     * 用户要拿着它去网页里问，缺了数据 AI 无从下手。
-     * 没有可补条目时只复制提示词，并提示一句。
+     * 与旧版「整表补全」的关系：那条路（挑出所有待补行 → 一次问全表 → 落地）
+     * 在逐条校对的模型下已经没有位置了 —— 用户眼前只有一条，问全表没有意义。
+     * 保留的 [AiFill.parseReply] 等纯逻辑不变，只是调用点换成了单条。
+     *
+     * 结果**只进 `aiInjected`**（要用户点「填入本条」），不直接改建议表：
+     * AI 不知道自己在改哪一行，直接落地会把数据改烂（见 [AiFill.looksRelated]）。
+     *
+     * 用的配置是**会话手上那一份**（`session.aiConfig`），不是 `state.aiConfig`：
+     * 会话可能比设置更早建立，而配置在开机时就已经从存档注入进会话了。
+     * 两处读同一个值反而会让人以为它们是两个独立开关。
      */
-    fun copyAiPrompt(prompt: String) {
-        val bridge = bridge
-        if (bridge == null) {
+    suspend fun runAiOne(prompt: String) {
+        val session = fixSession ?: return
+        // 搜索兜底进行中不接受叠加的生成请求：两轮模型调用正悬着，
+        // 再点生成会把状态搅在一起（原型同一条规则）
+        if (session.aiSearching) return
+        val q = prompt.trim()
+        if (q.isEmpty()) {
+            session.aiError = "先写点什么"
+            return
+        }
+        val config = session.aiConfig
+        if (!config.ready) {
+            session.aiError = "还没填接口地址或密钥，去「我的 → AI 设置」里填一下"
+            return
+        }
+        session.aiBusy = true
+        // 兜底的「搜过 / 来源 / 说明」属于**上一遍结果**，必须先清掉 ——
+        // 否则新结果天生顶着「已联网搜过」的标签，来源还是上一条的
+        session.clearAiSearchState()
+        session.lastAiQuery = q
+        session.aiError = null
+        session.aiStatus = null
+        // 第一遍调用真的走通了吗（接口层成功，解析成败不论）——
+        // 接口层就失败了（密钥错 / 断网）就不兜底：那是配置问题，不是认不出
+        var apiOk = false
+        try {
+            val reply = createAiBridge().chat(AiFill.buildOneMessage(q), config)
+            if (!reply.ok) {
+                session.aiError = reply.error ?: "调用失败"
+            } else {
+                apiOk = true
+                val one = AiFill.parseOneReply(reply.text)
+                if (one == null) {
+                    // 只有**真的读不懂**才走到这：模型答非所问、吐了一整段散文。
+                    session.aiError = "没从回答里解析出可用内容"
+                    session.aiUnknown = true
+                } else {
+                    // 解析干净但一条都没有（提示词允许的 `[]`）与「五个值全空」是同一种结果：
+                    // 模型老实说它认不出这首曲子。这时**不能**报「解析失败」——
+                    // 用户会以为程序坏了、去改接口地址，白折腾一轮。
+                    // 交给 landAiResult 置 aiUnknown，界面显示「没认出这首曲子」就好。
+                    session.landAiResult(one)
+                    if (one.isBlank) session.aiError = null
+                }
+            }
+        } catch (e: Exception) {
+            session.aiError = "调用出错：${e.message ?: e.javaClass.simpleName}"
+        } finally {
+            session.aiBusy = false
+        }
+        // 联网兜底：第一遍没认出（整条空 / 只回曲名 / 回了个读不懂的）→
+        // 自动搜一轮网页资料、带着资料再问一遍。搜索词用**点生成那会儿的字**。
+        if (apiOk && config.searchReady &&
+            SearchFallback.eligible(session.aiResult, session.aiUnknown)
+        ) {
+            runSearchFallback(session, q)
+        }
+    }
+
+    /** 把当前的 AI 结果复制成一段文字（「复制」那个小按钮） */
+    fun copyAiResult() {
+        val session = fixSession ?: return
+        val r = session.aiResult ?: return
+        val bridge = bridge ?: run {
             showToast("剪贴板不可用")
             return
         }
-        aiPrompt = prompt
-        val request = buildAiRequest()
-        val text = if (request == null) {
-            showToast("没有需要补全的条目，只复制了提示词")
-            prompt
-        } else {
-            // 拼成「系统提示 + 用户数据」两段，用户整段贴进网页聊天窗即可
-            request.second.joinToString("\n\n") { it.content }
+        val text = listOf(
+            "曲名：" + r.title,
+            "作曲家：" + r.composer,
+            "乐器：" + r.instrument,
+            "乐曲类型：" + r.genre,
+            "调性：" + r.key,
+        ).joinToString("\n")
+        session.aiStatus = if (bridge.copyText(text)) "已复制" else "复制失败"
+    }
+
+    /**
+     * 联网兜底的**执行体**：搜一轮资料 → 带着资料把模型再问一遍。
+     *
+     * 规格（原型 `fix-stepper-demo.html` 的联网段是权威文本）：
+     * - 只搜**一轮**：二问仍不认得就明说，不三问；
+     * - 搜不到老实说没找到，绝不靠曲名硬编；
+     * - 二问的结果**照样过闸门**（looksRelated / titleOnly / 勾选），
+     *   联网不是通行证；
+     * - 认出来了必须亮**来源**（域名，最多 3 条）。
+     *
+     * ## 翻页作废
+     *
+     * 搜索 + 二问是两次真正的网络往返，期间用户完全可能翻页。
+     * 回来时核对行号：变了就说明这份资料是给**上一条**查的，
+     * 整个兜底状态原样清掉 —— 绝不能把 A 条搜回来的东西落到 B 条头上
+     * （`clearAiSearchState` 顺带清掉搜索中的提示，界面立刻干净）。
+     * 这条在纯逻辑层管不着协程，只能在这里落实，所以它是**私有**的：
+     * 入口只有 [runAiOne]（自动）与 [runAiSearchFallback]（手动）两个。
+     */
+    private suspend fun runSearchFallback(session: FixSession, prompt: String) {
+        if (session.aiSearching) return
+        val query = SearchFallback.buildQuery(prompt, session.currentRow?.fileName)
+        val at = session.cursor
+        // 第一遍可能留下「没解析出内容」的红字 —— 既然要再试一轮，先摘掉，
+        // 不然搜索中那行提示和旧红字挤在一起，用户分不清哪句是最新的
+        session.aiError = null
+        session.aiSearching = true
+        session.aiSearched = true
+        try {
+            val reply = createSearchBridge().search(query, session.aiConfig.searchKey)
+            if (!reply.ok) {
+                session.aiSearchNote = "搜索失败：${reply.error ?: "原因不明"}"
+                return
+            }
+            val hits = SearchFallback.parseTavily(reply.json)
+            if (hits.isEmpty()) {
+                // 老实说没找到。aiSearchNote 留空，界面用默认措辞「资料里没有可靠信息」
+                return
+            }
+            val second = createAiBridge().chat(
+                SearchFallback.buildSecondMessages(query, hits),
+                session.aiConfig,
+            )
+            if (!second.ok) {
+                session.aiSearchNote = "资料抓到了，但第二次识别没成功：${second.error ?: "原因不明"}"
+                return
+            }
+            val outcome = SearchFallback.adjudicate(second.text)
+            if (outcome.result != null) {
+                session.landAiResult(outcome.result)
+                session.aiViaSearch = true
+                session.aiSources = SearchFallback.domainsOf(hits)
+            }
+            session.aiSearchNote = outcome.note
+        } catch (e: Exception) {
+            session.aiSearchNote = "搜索出错：${e.message ?: e.javaClass.simpleName}"
+        } finally {
+            if (fixSession !== session || session.cursor != at) {
+                session.clearAiSearchState()
+            } else {
+                session.aiSearching = false
+            }
         }
-        if (bridge.copyText(text)) {
-            showToast("已复制，去网页里粘贴提问吧")
+    }
+
+    /**
+     * 「联网搜一次」手动键：黄条上那个。
+     *
+     * 与自动兜底走同一条路（[runSearchFallback]），差别只有两处：
+     * - 密钥没配时给一句**能行动的**提示（自动兜底在 searchReady 为 false 时
+     *   干脆不触发，所以永远轮不到报这句错）；
+     * - 搜索词优先用 [FixSession.lastAiQuery]（点生成那会儿的字），
+     *   没生成过才退回现在框里的 —— 两次之间用户可能已经改了框，
+     *   拿改过的字去搜，资料对不上这条，结果还是落不到点上。
+     */
+    suspend fun runAiSearchFallback() {
+        val session = fixSession ?: return
+        if (session.aiSearching) return
+        if (session.aiConfig.searchKey.isBlank()) {
+            session.aiError = "联网兜底还没配好：去「我的 → AI 设置」填搜索密钥（Tavily）"
+            return
+        }
+        val q = session.lastAiQuery.ifBlank { session.aiPrompt }
+        if (q.isBlank()) {
+            session.aiError = "先写点什么"
+            return
+        }
+        runSearchFallback(session, q)
+    }
+
+    /**
+     * 联网兜底总开关（AI 条上的「联网」徽章）。
+     *
+     * 改的是**中枢这份**配置，会话那份跟着同步 —— 会话的 aiConfig 是注入的拷贝，
+     * 不同步的话，开关在 AI 条上按了、兜底照样按旧值跑。
+     *
+     * 立刻落盘而不是等关页：开关是全局偏好，而且关校对页的那条路
+     * （[persistFixStore]）会用中枢的 aiConfig 覆盖存档 ——
+     * 开关状态本身不会丢，但用户点完就杀掉 App 的场景下，
+     * 存档里的进度与开关是否一致就说不清了，宁可当场写一次。
+     */
+    fun toggleSearchFallback() {
+        aiConfig = aiConfig.copy(searchOn = !aiConfig.searchOn)
+        val session = fixSession
+        if (session != null) {
+            session.aiConfig = aiConfig
+            persistFixStore(session)
         } else {
-            showToast("复制失败")
+            fixStoreHolder.update(fixStoreHolder.load().copy(ai = aiConfig))
         }
     }
 
@@ -351,17 +619,20 @@ class ScoreAppState {
      * 只对 [FixSource.Library] 有意义 —— CSV 来源的出口是「导出文件」，
      * 由用户自己导回 iPad，App 这边不该擅自改曲库。
      *
+     * 逐条走 [FixSession.takenFields]，它已经把 AI 注入的值合并进来了
+     * （只走规则建议的话，界面上明明用 AI 改过、写回曲库却没变）。
+     *
      * @return 实际改动的乐谱数
      */
     fun applyFixToLibrary(): Int {
         val session = fixSession ?: return 0
         if (session.source != FixSource.Library) return 0
         var changed = 0
-        session.entries.forEach { e ->
-            val score = e.score ?: return@forEach
-            val fields = session.takenFields(e)
+        session.rawRows.indices.forEach { i ->
+            val score = session.scores.getOrNull(i) ?: return@forEach
+            val fields = session.takenFields(i)
             if (fields.isEmpty()) return@forEach
-            val next = LibraryAdapter.applyTo(score, e.proposal, fields)
+            val next = LibraryAdapter.applyTo(score, session.proposalOf(i), fields)
             if (next == score) return@forEach
             val index = allScores.indexOfFirst { it.id == score.id }
             if (index >= 0) {
@@ -412,95 +683,15 @@ class ScoreAppState {
     }
 
     // ---------------------------------------------------------------- AI 调用
-
-    /** 当前会话启用的 AI 字段（目前全开；留出接口以便以后按字段勾选） */
-    private fun aiFields(): List<AiField> = AiFill.AI_FIELDS
-
-    /**
-     * 组装这次要发给 AI 的东西，供两条路（直连 / 手动复制）共用。
-     *
-     * 返回 null 表示没有可补的行，调用方据此提示。
-     */
-    fun buildAiRequest(): Pair<List<Map<String, String>>, List<AiFill.ChatMessage>>? {
-        val session = fixSession ?: return null
-        val fields = aiFields()
-        val targets = session.aiTargets(fields)
-        if (targets.isEmpty()) return null
-        val items = AiFill.buildItems(
-            rows = session.entries.map { it.row },
-            columns = session.columns,
-            indexes = targets,
-            fields = fields,
-        )
-        // items 里的 i 就是会话内下标，模型回答里带回来的也是它，落地时无需换算
-        return items to AiFill.buildMessages(items, fields, aiPrompt)
-    }
-
-    /**
-     * 直连调一次 AI 并把结果落地。
-     *
-     * 失败的三种情形分开告诉用户（没配密钥 / 网络失败 / 回答解析不了），
-     * 不要笼统说「失败了」—— 用户没法据此行动。
-     */
-    suspend fun runAi() {
-        fixSession ?: return
-        if (!aiConfig.ready) {
-            aiError = "还没填接口地址或密钥，去上面的设置里填一下，或改用「手动粘贴」"
-            return
-        }
-        val request = buildAiRequest()
-        if (request == null) {
-            aiError = "没有需要补全的条目"
-            return
-        }
-        aiBusy = true
-        aiError = null
-        try {
-            val reply = createAiBridge().chat(request.second, aiConfig)
-            if (!reply.ok) {
-                aiError = reply.error ?: "调用失败"
-                return
-            }
-            landAiReply(reply.text)
-        } catch (e: Exception) {
-            aiError = "调用出错：${e.message ?: e.javaClass.simpleName}"
-        } finally {
-            aiBusy = false
-        }
-    }
-
-    /** 手动粘贴那条路：把用户贴进来的文本当回答解析 */
-    fun applyPastedAi() {
-        if (aiPaste.isBlank()) {
-            aiError = "还没粘贴内容"
-            return
-        }
-        landAiReply(aiPaste)
-    }
-
-    /** 解析回答并落地；解析不出东西时把原因写到 [aiError] */
-    private fun landAiReply(text: String) {
-        val session = fixSession ?: return
-        val fields = aiFields()
-        val parsed = AiFill.parseReply(text, fields)
-        if (parsed.items.isEmpty()) {
-            aiError = parsed.error ?: "没从回答里解析出可用内容"
-            aiLastApplied = 0
-            return
-        }
-        val n = session.applyAi(parsed.items, fields)
-        aiLastApplied = n
-        aiError = null
-        // 落地后重算一次：AI 给的值可能又触发规则（例如它写了个错拼的作曲家，
-        // 拼写规则该接上继续纠正）。重算会保留用户已做的勾选。
-        session.recompute()
-        showToast(if (n > 0) "AI 补全了 $n 处，请逐条确认" else "AI 没有给出新的建议")
-    }
+    //
+    // 旧版的「整表补全」三个入口（buildAiRequest / runAi / applyPastedAi）已经删掉：
+    // 逐条校对的模型下，用户眼前只有一条，问全表没有意义。单条生成见 [runAiOne]。
+    // AiFill 里的解析、提示词、字段表这些纯逻辑原样保留，只是调用点换了。
 
     // ---------- 派生数据 ----------
     val visibleScores: List<Score>
         get() = LibraryQuery.sorted(
-            LibraryQuery.visible(allScores, query, filters),
+            LibraryQuery.visible(activePool, query, filters),
             sort,
         )
 
@@ -566,10 +757,10 @@ class ScoreAppState {
     }
 
     fun facetCount(dim: FilterDim, value: String): Int =
-        LibraryQuery.facetCount(allScores, query, pending, dim, value)
+        LibraryQuery.facetCount(activePool, query, pending, dim, value)
 
     val pendingResultCount: Int
-        get() = LibraryQuery.pendingCount(allScores, query, pending)
+        get() = LibraryQuery.pendingCount(activePool, query, pending)
 
     // ---------- 详情与编辑 ----------
     /** 打开乐谱详情。详情是一层覆盖视图，不压入导航栈，返回键优先关它 */
@@ -719,6 +910,21 @@ class ScoreAppState {
         )
         // 新导入的乐谱置顶，符合「最近添加」的直觉
         allScores.add(0, score)
+        imported = imported + ImportedScore(
+            title = score.title,
+            composer = score.composer,
+            type = score.type,
+            instrument = score.instrument,
+            period = score.period,
+            level = score.level,
+            source = score.source,
+            pages = score.pages,
+            dateAdded = score.dateAdded,
+            filePath = score.filePath ?: "",
+            thumbSeed = score.thumbSeed,
+            thumbRows = score.thumbRows,
+        )
+        persistLibrary()
         sheet = SheetKind.None
     }
 
@@ -772,10 +978,24 @@ class ScoreAppState {
             showToast("请填写标题")
             return
         }
+        // 网盘条目：写 netMetas（按远端路径索引），**只存本机，不写回网盘**
+        val netIndex = (id - netIdBase).toInt()
+        if (netIndex >= 0 && netIndex < netItems.size) {
+            val base = netItemToScore(netItems[netIndex], id)
+            val applied = draft.applyTo(base)
+            netMetas = NetLibrary.saveMetaDraft(netMetas, base.remotePath!!, draft.fieldsOf(applied))
+            persistLibrary()
+            if (detail?.id == id) detail = netdiskScores.getOrNull(netIndex)
+            showToast("已保存 · 只存在本机，不会写回网盘")
+            closeSheet()
+            return
+        }
         val index = allScores.indexOfFirst { it.id == id }
         if (index >= 0) {
             val updated = draft.applyTo(allScores[index])
             allScores[index] = updated
+            localMetas = saveLocalMeta(localMetas, scoreKeyOf(updated), draft.fieldsOf(updated))
+            persistLibrary()
             // 详情是覆盖视图、持的是乐谱快照；保存后若不替换，详情页仍显示改动前的旧值
             if (detail?.id == id) detail = updated
             showToast("已保存修改")
@@ -805,7 +1025,23 @@ class ScoreAppState {
     fun disarmDelete() { deleteArmed = false }
 
     fun delete(score: Score) {
+        // 网盘条目不在手机上：删它等于「让我再也找不到这份谱」，而它还好好躺在网盘里
+        if (score.isNet) {
+            showToast("网盘乐谱不能在手机里删。" + "取消绑定，或到网盘里删文件")
+            sheet = SheetKind.None
+            return
+        }
+        val key = scoreKeyOf(score)
+        val path = score.filePath
+        if (path != null && imported.any { it.filePath == path }) {
+            imported = imported.filterNot { it.filePath == path }
+        } else {
+            // 内置谱不落盘，只能记「这份被删过」，否则下次启动它又会回来
+            localHidden = localHidden + key
+        }
+        localMetas = localMetas - key
         allScores.removeAll { it.id == score.id }
+        persistLibrary()
         // 只收起「正在看的那一份」详情。详情是覆盖视图、不入导航栈，
         // 因此不能顺手把 navStack 拍回乐谱库——那样用户从作品页删除时会被弹回根部。
         if (detail?.id == score.id) detail = null
@@ -841,6 +1077,14 @@ class ScoreAppState {
      * 有文件则挂上覆盖视图，由 `AppRoot` 渲染 [com.example.scoreapp.ui.components.PdfViewerScreen]。
      */
     fun openPdf(score: Score) {
+        // 网盘条目要先下载，而下载是 suspend 的 —— 点击回调里起不了协程，
+        // 记一次「请求」交给 `AppRoot` 的 effect 去做（与 pendingPick 同一套路）。
+        // 每次都换一个新对象：key 变了 effect 才会重跑（连点同一份也算一次新请求）
+        val remote = score.remotePath
+        if (!remote.isNullOrBlank()) {
+            netOpenRequest = NetLibrary.nextOpenRequest(netOpenRequest, remote)
+            return
+        }
         val path = score.filePath?.takeIf { it.isNotBlank() }
             ?: score.assetPdf?.takeIf { it.isNotBlank() }
         if (path == null) {
@@ -865,7 +1109,7 @@ class ScoreAppState {
         composerSearchOpen = false
         filters = FilterState(composer = setOf(composer))
         groupBy = FilterDim.Type
-        libraryTab = LibraryTab.Scores
+        libraryTab = LibraryTab.Local
         push(Screen.Works(composer))
         // 这里打开的是「作品页」，不是谱单——原文案误用「谱单」，与谱单详情混淆
         showToast("打开作品：${ComposerNames.shortName(composer)} · ${allScores.count { it.composer == composer }} 首")
@@ -891,7 +1135,7 @@ class ScoreAppState {
         resetTo(Screen.Manage)
         query = ""
         librarySearchOpen = false
-        libraryTab = LibraryTab.Scores
+        libraryTab = LibraryTab.Local
         groupBy = dim
         filters = if (value == null) FilterState.EMPTY else FilterState.forValue(dim, value)
         showToast(
@@ -940,10 +1184,655 @@ class ScoreAppState {
         showToast(if (freed > 0) "已清理 ${formatBytes(freed)} 缩略图缓存" else "缓存为空，无需清理")
     }
 
-    /** 切换「自动识别元数据」。 */
-    fun toggleAi() {
-        aiOn = !aiOn
-        showToast(if (aiOn) "已开启自动识别元数据" else "已关闭自动识别元数据")
+    // ---------- 乐谱库持久化（library.json） ----------
+    //
+    // 网盘入库要求「用户改过的元数据跨同步、跨重启都在」；既然要落盘，
+    // 本机那一半顺手一起做 —— 否则会出现一件很怪的事：
+    // 网盘谱子的修改记得住，本机谱子的记不住。
+    //
+    // 存的是**改过的字段**（不是整份 Score）：默认值由 SampleLibrary / 远端决定，
+    // 只记差异，将来改默认值时老存档不会把旧值钉死。
+
+    /** 网盘入库的条目 */
+    var netItems by mutableStateOf<List<NetLibItem>>(emptyList())
+        private set
+
+    /** 网盘条目上用户改过的字段（key → 字段）。**跨同步永久保留**，条目消失也不删 */
+    var netMetas by mutableStateOf<Map<String, Map<String, String>>>(emptyMap())
+        private set
+
+    /** 绑定进乐谱库的文件夹。存的是**完整远端地址** */
+    var netBound by mutableStateOf<List<String>>(emptyList())
+        private set
+
+    /** 上次同步成功的时刻；0 = 从没同步过 */
+    var netSyncedAt by mutableStateOf(0L)
+        private set
+
+    var netSyncing by mutableStateOf(false)
+        private set
+
+    /** 同步失败的原因（人话）；null = 这次没失败。
+     *  **失败时列表保持上次的内容**，绝不能把首页清空 */
+    var netSyncError by mutableStateOf<String?>(null)
+        private set
+
+    /** 本机条目上用户改过的字段 */
+    var localMetas by mutableStateOf<Map<String, Map<String, String>>>(emptyMap())
+        private set
+
+    /** 导入进来的谱子（重启后靠它重建曲库条目） */
+    var imported by mutableStateOf<List<ImportedScore>>(emptyList())
+        private set
+
+    /** 删掉过的本机条目 key。不记的话重启会复活 */
+    var localHidden by mutableStateOf<Set<String>>(emptySet())
+        private set
+
+    /** 「打开网盘页里某一份」的请求；null = 没在请求。下载是 suspend 的，
+     *  点击回调起不了协程，因此交给 `AppRoot` 的 effect 去消费。
+     *
+     *  **effect 拿这个对象当 key，所以它绝不能回写这个对象。** 旧写法是
+     *  `netPendingOpen = null` 先置空再干活 —— 那正是它自己的 key：Compose 会取消
+     *  正在跑的下载协程，而 IO 块不看取消、文件照旧写完，收尾就永远不执行
+     *  → 界面停在「已下载，正在打开…」（1.23 真机定位）。 */
+    var netOpenRequest by mutableStateOf<NetOpenRequest?>(null)
+        private set
+
+    /** 真的正在下载的那一份（给卡片显示「下载中…」）。
+     *  **与 [netOpenRequest] 分开**：前者是「请求」，这个是「正在执行」，
+     *  否则下载函数一改请求，effect 会被自己再触发一次 —— 无限下载。 */
+    var netOpeningKey by mutableStateOf<String?>(null)
+
+    /** 首页网盘页正在下载那一份的名字（浮层标题） */
+    var netOpenTitle by mutableStateOf<String?>(null)
+        private set
+
+    /** 浮层副标题（体积）。下载时给个量级，比一根条更有实感 */
+    var netOpenSubtitle by mutableStateOf<String?>(null)
+        private set
+
+    /** 首页网盘页的下载进度 0–100；**-1 = 服务端没给总长度**，显示「正在下载…」 */
+    var netOpenProgress by mutableStateOf(-1)
+        private set
+
+    /** 已收 / 总字节。浮层拿它显示「2.1 / 5.6 MB」—— 只给百分比看不出「到底在动没有」 */
+    var netOpenDone by mutableStateOf(0L)
+        private set
+
+    /** 服务端给的总长度；0 = 没给（此时不报百分比） */
+    var netOpenTotal by mutableStateOf(0L)
+        private set
+
+    /** 首页网盘页下载失败的人话原因；null = 这次没失败 */
+    var netOpenError by mutableStateOf<String?>(null)
+        private set
+
+    /**
+     * 失败的技术细节（`HTTP 404` / `MalformedURLException: no protocol`）。
+     * 浮层上灰字显示 —— 分类码只会说「网络不通」，
+     * 而「请求没发出去」和「服务器拒了」翻出来是同一句，谁也看不出区别。
+     */
+    var netOpenDetail by mutableStateOf<String?>(null)
+        private set
+
+    /** 网盘条目的 id 从这个基数往上编，与本机条目（从 1 开始）隔开 */
+    private val netIdBase: Long get() = 900_000L
+
+    /** 派生：网盘条目 → 曲库条目。**不进 allScores** —— 两个标签页各用各的池子 */
+    val netdiskScores: List<Score>
+        get() = netItems.mapIndexed { i, item ->
+            netItemToScore(NetLibrary.applyMeta(item, netMetas[item.key]), netIdBase + i)
+        }
+
+    /** 本机条目：内置样例 + 导入的谱子，**去掉删掉过的** */
+    val localScores: List<Score>
+        get() = allScores.filter { scoreKeyOf(it) !in localHidden }
+
+    /** 当前标签页用的是哪个池子 */
+    private val activePool: List<Score>
+        get() = when (libraryTab) {
+            LibraryTab.Netdisk -> netdiskScores
+            LibraryTab.Sets -> allScores
+            LibraryTab.Local -> localScores
+        }
+
+    /** 网盘条目 → Score。filePath 只在**已缓存**时才有值（否则要先下载） */
+    private fun netItemToScore(item: NetLibItem, id: Long): Score = Score(
+        id = id,
+        title = item.title,
+        composer = item.composer,
+        type = item.type,
+        instrument = item.instrument,
+        period = item.period,
+        level = item.level,
+        source = item.source,
+        pages = 0,
+        dateAdded = 0L,
+        filePath = netdiskCache[item.key]?.localPath,
+        remotePath = item.remotePath,
+        thumbSeed = (item.key.hashCode() and 0x7fffffff) % 997,
+        thumbRows = 5,
+    )
+
+    /** 网盘条目的缓存标记：已缓存 / 下载中 / 需下载。不写清楚用户会以为点了没反应 */
+    fun netBadgeOf(score: Score): String {
+        val key = score.remotePath ?: return ""
+        if (netdiskCache.containsKey(key)) return "已缓存"
+        return if (netOpeningKey == key) "下载中…" else "需下载"
+    }
+
+    /** 启动时读一次存档。**在 `installBundledScores` 之后调用** */
+    fun loadLibraryStore() {
+        val obj = runCatching { MiniJson.parse(bridge?.readLibraryJson() ?: "") }.getOrNull()
+            as? MiniJson.Value.Obj
+        val net = NetLibStore.fromValue(obj?.fields?.get("net"))
+        val local = LocalStore.fromValue(obj?.fields?.get("local"))
+        netItems = net.items
+        netMetas = net.metas
+        netBound = net.bound
+        netSyncedAt = net.syncedAt
+        localMetas = local.metas
+        localHidden = local.hidden
+        imported = local.imported
+
+        // 本机：先把用户改过的字段盖回去，再把导入的谱子加回来，最后去掉删掉过的
+        for (i in allScores.indices) {
+            val meta = localMetas[scoreKeyOf(allScores[i])]
+            if (meta != null) allScores[i] = applyLocalMeta(allScores[i], meta)
+        }
+        // id 要**逐个递增**：`map { it.toScore(nextId()) }` 会在 addAll 之前全算完，
+        // 而 nextId 取的是当前最大值 —— 那样每一份都会拿到同一个 id
+        var next = (allScores.maxOfOrNull { it.id } ?: 0L) + 1
+        val restored = local.imported.map { it.toScore(next++) }
+        allScores.addAll(0, restored)
+        if (localHidden.isNotEmpty()) {
+            allScores.removeAll { scoreKeyOf(it) in localHidden }
+        }
+    }
+
+    /** 落盘。任何一处改动（改元数据 / 导入 / 删除 / 绑定 / 同步）之后都要调一次 */
+    private fun persistLibrary() {
+        val json = buildString {
+            append("{\"v\":1,\"net\":")
+            append(NetLibStore(netItems, netMetas, netBound, netSyncedAt).toJson())
+            append(",\"local\":")
+            append(LocalStore(localMetas, imported, localHidden).toJson())
+            append('}')
+        }
+        bridge?.writeLibraryJson(json)
+    }
+
+    /**
+     * 同步网盘库：把每个绑定目录**当前层**的 PDF 拉回来。
+     *
+     * 只做三件事：加新条目、删消失的条目、更新体积 —— 用户改过的元数据不动
+     * （语义见 `NetLibrary.syncLibrary`）。失败时**保留上次列表**并说清原因。
+     */
+    suspend fun syncNetLibrary(force: Boolean) {
+        if (netSyncing) return
+        if (netBound.isEmpty()) {
+            netSyncError = null
+            return
+        }
+        val cfg = netdiskConfig
+        if (!cfg.ready) {
+            netSyncError = "还没配网盘"
+            return
+        }
+        // 节流：切走再切回来不该每次都拉一次
+        if (!force && netSyncedAt > 0L && nowMillis() - netSyncedAt < SYNC_THROTTLE_MS) return
+
+        val boundAt = netBound
+        netSyncing = true
+        netSyncError = null
+        val dirs = ArrayList<RemoteDir>()
+        var failure: String? = null
+        for (path in boundAt) {
+            val reply = createNetdiskBridge().propfind(path, cfg.user, cfg.pass)
+            if (!reply.ok) {
+                failure = Netdisk.errorText(reply.kind.ifBlank { "none" })
+                break
+            }
+            // path 一律自己拼：服务端给的 href 可能只是绝对路径
+            val listed = Netdisk.parsePropfind(reply.xml, path)
+                .map { it.copy(path = Netdisk.joinPath(path, it.name)) }
+            dirs.add(RemoteDir(path, listed))
+        }
+        // 同步途中用户改了绑定（或退出了），这一轮结果作废
+        if (netBound != boundAt) {
+            netSyncing = false
+            return
+        }
+        if (failure != null) {
+            netSyncing = false
+            netSyncError = failure
+            showToast("同步失败：$failure · 现在看到的是上次的列表")
+            return
+        }
+        val res = NetLibrary.syncLibrary(netItems, netMetas, dirs)
+        netItems = res.items
+        netSyncedAt = nowMillis()
+        netSyncError = null
+        netSyncing = false
+        persistLibrary()
+        showToast(
+            if (res.added > 0 || res.removed > 0) {
+                "已同步 · 新增 ${res.added} 份、移除 ${res.removed} 份"
+            } else {
+                "已同步 · 没有变化"
+            },
+        )
+    }
+
+    /** 同步条文案。三种态必须都能说清：同步中 / 已同步（多久前）/ 失败（显示多久前的列表） */
+    val netSyncText: String
+        get() = NetLibrary.syncStatusText(
+            NetSyncState(
+                busy = netSyncing,
+                boundCount = netBound.size,
+                boundPaths = netBound,
+                error = netSyncError,
+                syncedAt = netSyncedAt,
+                ageMs = if (netSyncedAt > 0L) nowMillis() - netSyncedAt else 0L,
+            ),
+        )
+
+    /** 浏览页当前目录是否已绑定 */
+    fun netdiskCurrentBound(): Boolean = NetLibrary.isBound(netBound, netdiskUrl(netdiskCwd))
+
+    /** 绑定 / 解绑网盘浏览页当前所在的文件夹 */
+    fun toggleBindCurrent() {
+        toggleBind(netdiskUrl(netdiskCwd))
+    }
+
+    fun toggleBind(path: String) {
+        netBound = NetLibrary.toggleBound(netBound, path)
+        persistLibrary()
+        showToast(
+            if (NetLibrary.isBound(netBound, path)) {
+                "已绑定 · 回首页「网盘」页同步一次"
+            } else {
+                "已解绑，库里的条目会在下次同步时移除"
+            },
+        )
+    }
+
+    /**
+     * 打开一份网盘乐谱：命中缓存直接开，否则下载 → 入缓存 → 开。
+     * 缓存**只留最近 1 份**（打开新的，上一份连文件一起删）。
+     *
+     * 失败时**故意留着** [netOpeningKey]：浮层要显示是哪一份失败、并给「重试」。
+     * 一声不响地退回列表，用户只会以为自己点错了。
+     */
+    suspend fun openNetdiskLibraryItem(key: String) {
+        val item = netItems.firstOrNull { it.key == key }
+        if (item == null) {
+            // 静默 return 就是「点了没反应」——必须说一句
+            showToast("这份谱子不在库里了，回网盘页同步一次")
+            return
+        }
+        // 同一份真的在下载就别重入；但**失败态必须允许重试**，否则「重试」会被自己挡死。
+        // 判据要带上 key：用户在下一份谱子时不该被上一份挡掉，那样只会卡着不动
+        if (netOpeningKey == key && netOpenError == null) return
+        if (!netdiskConfig.ready) {
+            netOpeningKey = null
+            netOpenTitle = null
+            showToast("先去「我的 → 网盘」填地址、账号和口令")
+            return
+        }
+        netOpeningKey = key
+        netOpenTitle = item.title
+        netOpenSubtitle = Netdisk.formatSize(item.size).ifBlank { null }
+        netOpenProgress = -1
+        netOpenDone = 0L
+        netOpenTotal = 0L
+        netOpenError = null
+        netOpenDetail = null
+        val hit = netdiskCache[key]
+        if (hit != null) {
+            netdiskCache = Netdisk.evictCache(netdiskCache, key)
+            netOpeningKey = null
+            netOpenTitle = null
+            showToast("来自缓存，没有重新下载")
+            openNetdiskPdf(hit.localPath, item.title)
+            return
+        }
+        val dir = bridge?.netdiskCacheDir()
+        if (dir == null) {
+            netOpeningKey = null
+            netOpenTitle = null
+            showToast("网盘缓存目录不可用")
+            return
+        }
+        val dest = "$dir/${Netdisk.cacheFileName(item.remotePath)}"
+        // 服务端给的 href 不带 host（见 Netdisk.absoluteUrl 的注释）：
+        // 少了这一步请求根本发不出去，每份谱子都会报「网络不通」
+        val reply = createNetdiskBridge().download(
+            url = Netdisk.absoluteUrl(netdiskConfig.addr, item.remotePath),
+            user = netdiskConfig.user,
+            pass = netdiskConfig.pass,
+            destPath = dest,
+            onProgress = { pct, done, total ->
+                netOpenProgress = pct
+                netOpenDone = done
+                netOpenTotal = total
+            },
+        )
+        // 收尾一律**不可取消**：走到这里字节已经落盘（进度都到 100 了），
+        // 剩下的只是记账与开阅读器。被取消就整段跳过的话，界面会永远停在
+        // 「已下载，正在打开…」—— 既不报错、也没得等（1.23 真机）
+        withContext(NonCancellable) {
+            if (!reply.ok) {
+                // 只有还是当前这一份才去写错误，否则会抢别人的浮层
+                if (netOpeningKey == key) {
+                    netOpenError = Netdisk.errorText(reply.kind.ifBlank { "none" })
+                    netOpenDetail = reply.detail.ifBlank { null }
+                }
+                return@withContext
+            }
+            // 文件确实躺在缓存目录里了：记账无条件做，否则下次点同一份还要重下
+            val kept = Netdisk.evictCache(netdiskCache, key)
+            netdiskCache.forEach { (k, v) -> if (k != key) bridge?.deleteLocal(v.localPath) }
+            netdiskCache =
+                kept + (key to NetdiskCached(item.title, item.size, item.remotePath, dest))
+            // 但浮层和阅读器只归「当前这一份」：用户关掉了浮层、或已经换成别的谱子，
+            // 就不该被这一份抢走
+            if (netOpeningKey != key) return@withContext
+            netOpeningKey = null
+            netOpenTitle = null
+            showToast("已下载到缓存 · ${Netdisk.formatSize(item.size)} · 看完就丢")
+            openNetdiskPdf(dest, item.title)
+        }
+    }
+
+    /** 重试首页网盘页那一份失败的下载（走与首次点击同一个 effect） */
+    fun retryNetOpen() {
+        val key = netOpeningKey ?: return
+        netOpenError = null
+        netOpenDetail = null
+        netOpenRequest = NetLibrary.nextOpenRequest(netOpenRequest, key)
+    }
+
+    /** 关掉首页网盘页的下载浮层 */
+    fun dismissNetOpen() {
+        netOpeningKey = null
+        netOpenTitle = null
+        netOpenSubtitle = null
+        netOpenError = null
+        netOpenDetail = null
+        netOpenProgress = -1
+        netOpenDone = 0L
+        netOpenTotal = 0L
+    }
+
+    // ---------- 网盘（AList / WebDAV） ----------
+    //
+    // 语义写在 domain/netdisk/Netdisk.kt 的文件头：只认标准 WebDAV、
+    // 只在线打开不入库、缓存只留最近 1 份。这里只放状态与动作，
+    // 判断（哪些能列、路径怎么拼、错误怎么翻人话）一律在纯逻辑层。
+
+    /** 连接配置。明文落 `filesDir/netdisk.json`，与 [AiConfig] 同一套取舍 */
+    var netdiskConfig by mutableStateOf(NetdiskConfig())
+        private set
+
+    /** 设置面板是否盖在列表上 */
+    var netdiskSetupOpen by mutableStateOf(false)
+        private set
+
+    /** 当前目录。**相对根**的路径（`/钢琴/拜厄`）；根目录是空串 */
+    var netdiskCwd by mutableStateOf("")
+        private set
+
+    /** 当前目录列出来的东西。**含非 PDF** —— 界面自己挑，[Netdisk.skippedCount] 要数它们 */
+    var netdiskEntries by mutableStateOf<List<NetdiskEntry>>(emptyList())
+        private set
+
+    var netdiskLoading by mutableStateOf(false)
+        private set
+
+    /** 列目录失败的分类码（交给 [Netdisk.errorText] 翻人话）；null = 这次没失败 */
+    var netdiskError by mutableStateOf<String?>(null)
+        private set
+
+    /** 缓存。**只留最近 1 份** */
+    var netdiskCache by mutableStateOf<Map<String, NetdiskCached>>(emptyMap())
+        private set
+
+    /** 正在下载的那一份；null = 没在下载 */
+    var netdiskOpening by mutableStateOf<NetdiskEntry?>(null)
+        private set
+
+    /** 下载进度 0–100；**-1 表示服务端没给总长度**，界面显示「正在下载…」而不是一根不动的条 */
+    var netdiskProgress by mutableStateOf(-1)
+        private set
+
+    /** 与 [netOpenDone] 同理：浮层要能显示「2.1 / 5.6 MB」 */
+    var netdiskDone by mutableStateOf(0L)
+        private set
+
+    /** 服务端给的总长度；0 = 没给 */
+    var netdiskTotal by mutableStateOf(0L)
+        private set
+
+    /** 打开失败时给人看的一句话 */
+    var netdiskOpenError by mutableStateOf<String?>(null)
+        private set
+
+    /** 打开失败的技术细节（HTTP 码 / 异常名），浮层灰字显示 */
+    var netdiskOpenDetail by mutableStateOf<String?>(null)
+        private set
+
+    /** 「重试 / 测试连接」用的自增键：目录没变也要能重新发一次请求 */
+    var netdiskTick by mutableStateOf(0)
+        private set
+
+    /** 网盘谱子没有库内 id，用它给阅读器生成互不相同的 key */
+    private var readerKeySeq = 1_000_000L
+
+    /** 从磁盘读一次网盘配置。启动时由 `MainActivity` 调一次 */
+    fun loadNetdiskConfig() {
+        netdiskConfig = NetdiskConfig.fromJson(bridge?.readNetdiskConfig())
+    }
+
+    fun openNetdisk() {
+        push(Screen.Netdisk)
+        // 没配过就直接把设置面板摊开 —— 一个空白列表对用户没有任何信息量
+        netdiskSetupOpen = !netdiskConfig.ready
+        netdiskTick++
+    }
+
+    fun closeNetdisk() {
+        netdiskOpening = null
+        netdiskOpenError = null
+        netdiskSetupOpen = false
+        if (navStack.lastOrNull() == Screen.Netdisk && navStack.size > 1) back()
+    }
+
+    fun openNetdiskSetup() { netdiskSetupOpen = true }
+
+    fun closeNetdiskSetup() { netdiskSetupOpen = false }
+
+    fun saveNetdiskConfig(config: NetdiskConfig) {
+        val ok = bridge?.writeNetdiskConfig(NetdiskConfig.toJson(config)) ?: false
+        netdiskConfig = config
+        netdiskSetupOpen = false
+        // 换了网盘就是换了地方，原来的层级没有意义
+        netdiskCwd = ""
+        netdiskTick++
+        showToast(if (ok) "已保存" else "保存失败，配置只在本次运行有效")
+    }
+
+    fun clearNetdiskConfig() {
+        netdiskConfig = NetdiskConfig()
+        netdiskCwd = ""
+        netdiskEntries = emptyList()
+        netdiskError = null
+        bridge?.writeNetdiskConfig(NetdiskConfig.toJson(NetdiskConfig()))
+        showToast("已清空")
+    }
+
+    /**
+     * 列当前目录。
+     *
+     * 由界面用 `LaunchedEffect(netdiskCwd, netdiskTick)` 驱动：
+     * 换目录自然重跑，原地重试靠 [netdiskTick]。
+     */
+    suspend fun loadNetdiskDir() {
+        val cfg = netdiskConfig
+        if (!cfg.ready) {
+            netdiskEntries = emptyList()
+            netdiskError = null
+            netdiskLoading = false
+            return
+        }
+        val at = netdiskCwd
+        val url = netdiskUrl(at)
+        netdiskLoading = true
+        netdiskError = null
+        val reply = createNetdiskBridge().propfind(url, cfg.user, cfg.pass)
+        // 请求悬着的时候用户可能已经翻页或退出，别把旧结果盖回新的目录上
+        if (netdiskCwd != at || netdiskConfig != cfg) {
+            netdiskLoading = false
+            return
+        }
+        netdiskLoading = false
+        if (!reply.ok) {
+            netdiskEntries = emptyList()
+            netdiskError = reply.kind.ifBlank { "none" }
+            return
+        }
+        val listed = Netdisk.parsePropfind(reply.xml, url)
+        // path 一律自己拼：服务端给的 href 可能只是绝对路径（`/dav/x.pdf`），
+        // 拿它当地址去发请求必然失败
+        netdiskEntries = listed.map { it.copy(path = Netdisk.joinPath(url, it.name)) }
+        netdiskError = null
+    }
+
+    /** 顶栏「测试连接」：只探根目录，不动当前目录 */
+    suspend fun testNetdisk() {
+        val cfg = netdiskConfig
+        if (!cfg.ready) {
+            netdiskSetupOpen = true
+            return
+        }
+        val url = netdiskUrl("")
+        val reply = createNetdiskBridge().propfind(url, cfg.user, cfg.pass)
+        if (reply.ok) {
+            val n = Netdisk.parsePropfind(reply.xml, url).size
+            netdiskError = null
+            showToast("连上了 · $n 项")
+        } else {
+            val kind = reply.kind.ifBlank { "none" }
+            netdiskError = kind
+            showToast(Netdisk.errorText(kind))
+        }
+    }
+
+    fun netdiskGo(rel: String) {
+        if (netdiskLoading) return
+        netdiskCwd = rel
+    }
+
+    /** 上一级。**已经在根就返回 false**（调用方据此决定是退出本页还是不动） */
+    fun netdiskUp(): Boolean {
+        val root = Netdisk.normPath(netdiskConfig.addr)
+        val up = Netdisk.parentPath(netdiskUrl(netdiskCwd), root) ?: return false
+        netdiskCwd = netdiskRelOf(up, root)
+        return true
+    }
+
+    fun netdiskRetry() { netdiskTick++ }
+
+    /**
+     * 打开一份网盘谱子：命中缓存直接开，否则下载 → 入缓存 → 淘汰旧的 → 开。
+     * 谱子**不进乐谱库**，看完就丢（缓存只留最近 1 份）。
+     */
+    suspend fun netdiskOpen(entry: NetdiskEntry) {
+        // 失败时 netdiskOpening 是**故意留着**的（浮层要显示是哪一份失败了），
+        // 所以这里只在「真的正在下载」时才拒绝重入 —— 否则「重试」会被自己挡死
+        if (netdiskOpening != null && netdiskOpenError == null) return
+        if (!netdiskConfig.ready) {
+            showToast("先填网盘地址、账号和口令")
+            return
+        }
+        val key = Netdisk.cacheKeyOf(entry.path)
+        val hit = netdiskCache[key]
+        if (hit != null) {
+            netdiskCache = Netdisk.evictCache(netdiskCache, key)
+            showToast("来自缓存，没有重新下载")
+            openNetdiskPdf(hit.localPath, hit.name)
+            return
+        }
+        val dir = bridge?.netdiskCacheDir()
+        if (dir == null) {
+            showToast("网盘缓存目录不可用")
+            return
+        }
+        val dest = "$dir/${Netdisk.cacheFileName(entry.path)}"
+        netdiskOpening = entry
+        netdiskProgress = -1
+        netdiskDone = 0L
+        netdiskTotal = 0L
+        netdiskOpenError = null
+        val reply = createNetdiskBridge().download(
+            url = Netdisk.absoluteUrl(netdiskConfig.addr, entry.path),
+            user = netdiskConfig.user,
+            pass = netdiskConfig.pass,
+            destPath = dest,
+            onProgress = { pct, done, total ->
+                netdiskProgress = pct
+                netdiskDone = done
+                netdiskTotal = total
+            },
+        )
+        if (!reply.ok) {
+            // 留着 netdiskOpening，界面才知道是哪一份失败了
+            netdiskOpenError = Netdisk.errorText(reply.kind.ifBlank { "none" })
+            netdiskOpenDetail = reply.detail.ifBlank { null }
+            return
+        }
+        // 下载途中用户关掉了浮层（或退出了本页）就别再开
+        if (netdiskOpening == null) return
+        // 只留最近 1 份：打开新的，上一份连文件一起删掉
+        val kept = Netdisk.evictCache(netdiskCache, key)
+        netdiskCache.forEach { (k, v) -> if (k != key) bridge?.deleteLocal(v.localPath) }
+        netdiskCache = kept + (key to NetdiskCached(entry.name, entry.size, entry.path, dest))
+        netdiskOpening = null
+        // 直接进阅读器，没有界面能写这句话，所以走 Toast ——
+        // 「只留最近 1 份、看完就丢」是用户该知道的事
+        showToast("已下载到缓存 · ${Netdisk.formatSize(entry.size)} · 看完就丢")
+        openNetdiskPdf(dest, entry.name)
+    }
+
+    /** 关掉下载浮层（失败时的「关闭」） */
+    fun netdiskDismissOpen() {
+        netdiskOpening = null
+        netdiskOpenError = null
+        netdiskProgress = -1
+        netdiskDone = 0L
+        netdiskTotal = 0L
+    }
+
+    /** 当前目录对应的完整远端地址 */
+    private fun netdiskUrl(rel: String): String {
+        var url = Netdisk.normPath(netdiskConfig.addr)
+        for (seg in rel.split('/')) {
+            if (seg.isNotBlank()) url = Netdisk.joinPath(url, seg)
+        }
+        return url
+    }
+
+    /** 把完整地址减掉根，还原成相对路径（面包屑与「上一级」用） */
+    private fun netdiskRelOf(abs: String, root: String): String {
+        val r = Netdisk.normPath(root)
+        val s = Netdisk.normPath(abs)
+        return if (r.isNotEmpty() && s.startsWith(r)) s.substring(r.length) else s
+    }
+
+    private fun openNetdiskPdf(path: String, title: String) {
+        // 每次打开都换 key：换一份谱子必须重建文档状态，否则会读到上一份的内容
+        reader = ReaderRequest(key = ++readerKeySeq, path = path, title = title)
     }
 
     private fun nextId(): Long = (allScores.maxOfOrNull { it.id } ?: 0L) + 1
@@ -983,6 +1872,16 @@ class ScoreDraft(
         level = normalizeLevel(level),
         source = normalizeSource(source),
         pages = pages.toIntOrNull() ?: original.pages,
+    )
+
+    /** 规范化之后取 6 个可改字段。存的是**规范化后的值**，重启后界面显示才一致 */
+    fun fieldsOf(applied: Score): Map<String, String> = mapOf(
+        "title" to applied.title,
+        "composer" to applied.composer,
+        "instrument" to applied.instrument,
+        "type" to applied.type,
+        "period" to applied.period,
+        "level" to applied.level,
     )
 
     companion object {

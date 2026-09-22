@@ -53,8 +53,8 @@ android {
         applicationId = "com.example.scoreapp"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 8
-        versionName = "1.7"
+        versionCode = 24
+        versionName = "1.23"
     }
 
     sourceSets["main"].manifest.srcFile("src/androidMain/AndroidManifest.xml")

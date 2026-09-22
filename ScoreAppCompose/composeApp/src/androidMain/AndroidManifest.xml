@@ -17,6 +17,15 @@
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
 
+    <!--
+        AI 直连走 androidMain 的 HttpURLConnection。INTERNET 属于「普通权限」，
+        安装即授予、不会弹窗，但**必须在清单里显式声明** —— 不声明的话
+        URL.openConnection() 会在真正发请求那一刻抛
+        SecurityException: Permission denied (missing INTERNET permission?)，
+        而且是运行时才炸，编译期和 dex 检查都发现不了。
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:name=".ScoreApp"
         android:allowBackup="true"
@@ -24,7 +33,8 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.ScoreApp">
+        android:theme="@style/Theme.ScoreApp"
+        android:usesCleartextTraffic="true">
 
         <activity
             android:name=".MainActivity"

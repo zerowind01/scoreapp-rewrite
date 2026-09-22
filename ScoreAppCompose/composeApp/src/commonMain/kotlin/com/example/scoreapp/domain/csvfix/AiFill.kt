@@ -15,48 +15,267 @@ object AiFill {
     // ------------------------------------------------------------------ 字段表
 
     /**
-     * 给 AI 用的字段清单。
+     * 给 AI 用的字段清单。**恰好五个字段**（Jackson 2026-09-19 定死）。
      *
      * [AiField.key] 是给 AI 看的键名，[AiField.col] 是内部列代号，[AiField.cn] 是中文列名
      * —— 三套名字都要在解析时认，因为模型被中文提示词引导时经常直接吐中文键名。
+     *
+     * 为什么**不含** `Labels`（标签）与 `Reference`（来源）：那两个是用户自己的分类体系
+     * （「教学」「考级」「Bärenreiter 版」），是从他的使用习惯里长出来的，
+     * AI 既不知道他分了几类、也不知道他管某个出版社叫什么，编出来的值只能制造垃圾。
+     * 这条边界在界面上也如实标出（「标签/来源由你自己填」），免得用户等一个永远不来的建议。
+     *
+     * `tags`（编配/乐器）虽然在 forScore 里叫 Tags，但**在 AI 这条路上语义就是「乐器」**：
+     * 提示词按「英文乐器名」要值，因为 Jackson 的语系规则里外国作品的乐器写英文。
      */
     val AI_FIELDS: List<AiField> = listOf(
         AiField("title", ColumnMap.TITLE, "曲名"),
         AiField("composers", ColumnMap.COMP, "作曲家"),
+        AiField("tags", ColumnMap.TAG, "乐器"),
         AiField("genres", ColumnMap.GENRE, "乐曲类型"),
-        AiField("tags", ColumnMap.TAG, "编配"),
-        AiField("labels", ColumnMap.LABEL, "标签"),
-        AiField("reference", ColumnMap.REF, "来源"),
         AiField("key", ColumnMap.KEY_KEYSF, "调性", AiField.KIND_KEY),
     )
+
+    /** AI 结果里「一条记录」的字段键，与 [AI_FIELDS] 同序，供单条生成那条路共用 */
+    val AI_RESULT_KEYS: List<String> = AI_FIELDS.map { it.key }
 
     /** 只关心调性的调用点用的便捷常量 */
     val KEY_FIELD: AiField = AI_FIELDS.first { it.kind == AiField.KIND_KEY }
 
     /**
-     * 默认提示词。
+     * 默认提示词。**语系规则是这里最硬的一条**（Jackson 2026-09-19 拍板）。
      *
-     * 措辞有两处是踩坑换来的：
+     * 规则本身：中国作品 → 曲名/作曲家/乐器/类型全用中文；
+     * 其余（外国作品）→ 曲名原文全称带作品号、作曲家原文全名、乐器英文、类型英文。
+     * 之所以要**按作品分别判断**而不是「一律英文」：他的曲库里两种都有，
+     * 强行统一会把《茉莉花》写成 Jasmine Flower、《二泉映月》写成 Moon Reflected
+     * in Erquan Spring —— 那种译名既不通用、搜也搜不到，等于把数据改废。
+     *
+     * 几处措辞都是踩坑换来的：
      * 1. 明确「不确定就填空字符串」—— 否则模型会为了显得有用而硬编作曲家。
-     * 2. 明确「调性写文字、不要写数字编码」—— 模型见过 forScore 的 keysf/keymi
-     *    数字格式时爱直接吐 `-3`，那个值对用户毫无可读性，也没法校验。
+     * 2. 调性**要求写缩写**（`c#m` / `bB` / `F#`）而不是「降B大调」：这个缩写
+     *    与 forScore 的 keysf/keymi 同源，能被 `ScoreKey.parse` 直接吃下并换算成
+     *    两列编码，中间不需要任何中文转换；而模型见过 keysf/keymi 的数字格式时
+     *    爱直接吐 `-3`，那个值对用户毫无可读性，也没法让它自己校验。
+     * 3. 给出**正反例**而不是只给规则描述：语系规则这种「看情况」的要求，
+     *    光写规则模型会理解得七零八落，配上两个完整例子才稳。
      */
     val DEFAULT_PROMPT: String = listOf(
-        "补全乐谱条目的字段。",
+        "补全乐谱条目的字段。只补给出的这五个：曲名、作曲家、乐器、乐曲类型、调性。",
         "",
-        "规则：",
-        "- 只根据曲名、文件名和已有字段判断，不确定就填空字符串。",
-        "- 作曲家写规范拼写（Frédéric Chopin、Johann Sebastian Bach、Ludwig van Beethoven），",
+        "【语系规则，最重要】先判断这首作品是不是中国的：",
+        "- 中国作品：曲名、作曲家、乐器、乐曲类型**一律用中文**。",
+        "  例：《二泉映月》→ 曲名「二泉映月」、作曲家「华彦钧」、乐器「二胡」、类型「器乐独奏」、调性「A」。",
+        "  例：《茉莉花》→ 曲名「茉莉花」、作曲家「江苏民歌」、乐器「声乐」、类型「民歌」、调性「bE」。",
+        "- 其他作品（一律当外国作品）：曲名用**原文全称并带作品号**、作曲家写**原文全名**、",
+        "  乐器写**英文**、乐曲类型写**英文**。",
+        "  例：月光奏鸣曲 → 曲名「Piano Sonata No.14, Op.27 No.2」、作曲家「Ludwig van Beethoven」、",
+        "  乐器「Piano」、类型「Sonata」、调性「c#m」。",
+        "  不要翻译成中文，也不要用自己编的英文译名：原文是什么就写什么（Chopin 的练习曲写 Étude）。",
+        "",
+        "其他规则：",
+        "- 不确定就填空字符串，不要猜、不要编。宁可留空也別写错。",
+        "",
+        "【最重要的一条，压过上面全部】先判断你**到底认不认得这首曲子**：",
+        "- 认得（知道作曲家和作品）：五个键必须全写出来，拿不准的那个写空字符串。",
+        "  例：认得曲名和乐器、不确定调性 → {\"i\":0,\"title\":\"…\",\"composers\":\"…\",",
+        "  \"tags\":\"Piano\",\"genres\":\"\",\"key\":\"\"} —— 键一个都不能少，空着就空着。",
+        "- **不认得**（只是从曲名里看不出是什么作品、没有可靠记忆）：",
+        "  **整条写成空数组 []，一个对象都不要回**。",
+        "  宁可直接回 []，也不要靠曲名去猜调性、类型、乐器「凑齐」五个键 ——",
+        "  猜出来的值比留空有害得多：它看起来像真的，用户会照着存进库里。",
+        "",
+        "【认不出时最容易犯的错，单独说一遍】",
+        "**不要回「只填曲名、其余四项留空」的那种对象。**",
+        "你可能会想「曲名是用户给我的，写回去总没错，剩下四项留空也表示我不知道」——",
+        "**这个形态是错的，别用**。它与「认得但不确定」长得一模一样，",
+        "用户看到的是「识别完成，结果如下」加孤零零一行曲名，无法分辨",
+        "你是「认出这首曲子了」还是「根本不认识」。",
+        "曲名**不算**你认得这首曲子的证据：那行字是用户自己敲进来的，你只是重复了一遍。",
+        "所以只有两种合法回复：**要么**五个键齐全（认得但有不确认的，就写空串），",
+        "**要么**整条空数组 []。",
+        "「只填曲名、作曲家/乐器/类型/调性四项全空」是**第三种形态，不合法**：请改写成 []。",
+        "- 作曲家写规范全名（Frédéric Chopin、Johann Sebastian Bach、Ludwig van Beethoven），",
         "  中国作曲家写中文全名；编曲/改编的人名不算作曲家。",
-        "- 乐曲类型用简短体裁词（Etude、Sonata、Waltz、Nocturne、合唱、基本功练习、英皇考级曲目）。",
-        "- 编配写声部或编制（钢琴、混声四部、童声二部、钢琴伴奏）。",
-        "- 标签写用途或场景（教学、考级、演出、伴奏）；多值用半角逗号加空格分隔。",
-        "- 调性写「降B大调」「A小调」这种文字，不确定就留空；不要写数字编码。",
+        "- 乐曲类型用简短体裁词：外国作品写 Sonata、Étude、Nocturne、Waltz、Polonaise、March、Ballet；",
+        "  中国作品写民歌、器乐独奏、古曲、钢琴曲、流行歌曲这类中文词。",
+        "- 乐器写这一份乐谱实际用的编制（钢琴 / Piano、二胡 / Erhu、声乐 / Voice）。",
+        "- 调性写缩写：大调写成 C、bB、F#、bE（降号在字母前，升号在后，字母大写）；",
+        "  小调写成 am、c#m、d小调对应的 dm（字母小写，末尾加 m）。",
+        "  不要写「降B大调」这种中文，也不要写数字编码。",
+        "",
+        "【绝对不要输出】标签（Labels）与来源（Reference）—— 这两个字段由用户自己填，你不要给。",
         "",
         "输出：JSON 数组，不要任何解释文字，不要 Markdown 代码块，不要写分析过程。",
-        "每项形如 {\"i\":0,\"genres\":\"Etude\",\"tags\":\"钢琴\"}。",
-        "i 必须与输入里的 i 完全一致；只写待补全字段里列出的键。",
+        "每项形如 {\"i\":0,\"title\":\"...\",\"composers\":\"...\",\"tags\":\"...\",\"genres\":\"...\",\"key\":\"...\"}。",
+        "i 必须与输入里的 i 完全一致；只写上面列出的这五个键。",
     ).joinToString("\n")
+
+    // ------------------------------------------------------------------ 相关性守卫
+
+    /**
+     * 判断 AI 给的曲名跟这一条原本的曲名「像不像」。
+     *
+     * 为什么必须有这道闸：AI 只看着提示词作答，**它不知道自己在改哪一行**。
+     * 用户在第 300 条上敲「月光奏鸣曲」，AI 老老实实回了贝多芬的曲子——
+     * 可这一行原本是《萱草花》，硬写就把数据改烂了。这种错误一次能毁掉一行，
+     * 而用户几乎不会逐条复核 AI 的填入结果。
+     *
+     * 判定宽松：清掉标点、忽略大小写后，只要有一方是另一方的子串，
+     * 或者存在**连续 3 个**相同的汉字/字母片段，就算相关。宁可漏放、
+     * 不可误伤 —— 误报会让用户每次都要绕过警告，久了就无视它了。
+     *
+     * **原值要先跑一遍 [FixRules.TITLE_RULES]**：库里的标题通常是 `《月光》_pdf`
+     * 这种从文件名来的脏串，AI 回的却是干净的 `月光奏鸣曲`。
+     * 不先清洗就会拿着 `月光pdf` 去跟 `月光奏鸣曲` 比，怎么都算不上相关，
+     * 于是**每一条正常的都可能被标成「对不上」**——那道闸就废了，用户会直接无视它。
+     * 这也跟界面一致：用户在屏幕上看到的就是清洗后的标题。
+     *
+     * 注意清洗**只对原值做**。AI 那一侧是刚生成的，本就该是干净的标准名；
+     * 反过来清洗等于替它兜底，可能把「它其实答错了」这件事抹掉。
+     *
+     * 原本没有曲名的行（`orig` 为空）无从比较，一律放行。
+     */
+    fun looksRelated(originalTitle: String?, aiTitle: String?): Boolean {
+        val a = relateKey(FixRules.cleanTitle(originalTitle.orEmpty()))
+        val b = relateKey(aiTitle)
+        if (a.isEmpty() || b.isEmpty()) return true
+        if (a.contains(b) || b.contains(a)) return true
+        for (i in 0..a.length - 3) if (b.contains(a.substring(i, i + 3))) return true
+        for (i in 0..b.length - 3) if (a.contains(b.substring(i, i + 3))) return true
+        return false
+    }
+
+    /** 相关性比较用的归一化：只留汉字、字母、数字，一律小写 */
+    private fun relateKey(s: String?): String =
+        s.orEmpty().lowercase().filter { it in '\u4e00'..'\u9fa5' || it in 'a'..'z' || it in '0'..'9' }
+
+    // ------------------------------------------------------------------ 单条生成
+
+    /**
+     * 单条生成的字段清单：**与 [AI_FIELDS] 同一份**，只是把键名换成界面用的短名。
+     *
+     * 界面上一行一个字段，用 `title / composer / instr / genre / key` 这几个键
+     * 比 `title / composers / tags / genres / key` 好读（`tags` 在 AI 那条路上
+     * 语义其实是「乐器」，界面上写 `instr` 才不会让人误会）。
+     */
+    val ONE_FIELDS: List<AiField> = listOf(
+        AiField("title", ColumnMap.TITLE, "曲名"),
+        AiField("composer", ColumnMap.COMP, "作曲家"),
+        AiField("instr", ColumnMap.TAG, "乐器"),
+        AiField("genre", ColumnMap.GENRE, "乐曲类型"),
+        AiField("key", ColumnMap.KEY_KEYSF, "调性", AiField.KIND_KEY),
+    )
+
+    /**
+     * 组装「给一首曲子」的对话消息（顶部 AI 条那条路）。
+     *
+     * 与 [buildMessages]（整表补全）的差别只有输入形状：这里给的是**一句提示词**
+     * 而不是一组待补条目。系统提示词共用同一份 [DEFAULT_PROMPT]，
+     * 所以语系规则、字段范围、输出格式三条约束两条路完全一致 ——
+     * 不会出现「整表补全懂语系规则、单条生成却不懂」这种分裂。
+     */
+    fun buildOneMessage(prompt: String, customPrompt: String? = null): List<ChatMessage> {
+        val list = ONE_FIELDS.joinToString("、") { "${it.key}（${it.cn}）" }
+        val base = customPrompt?.takeIf { it.isNotBlank() } ?: DEFAULT_PROMPT
+        val sys = buildString {
+            append(base)
+            append("\n\n本次只要补全这一首：")
+            append(list)
+            append("\n\n【最高优先级】你的整条回复必须只有 JSON 数组本身，")
+            append("第一个字符是 [ ，最后一个字符是 ] 。")
+            append("数组里**只有一项**，行号固定写 0。")
+            append("禁止输出思考过程、分析说明、Markdown 代码块，禁止写 \"Let me analyze\"。")
+            append("只输出 JSON。")
+        }
+        return listOf(
+            ChatMessage("system", sys),
+            ChatMessage("user", "曲目：$prompt"),
+        )
+    }
+
+    /**
+     * 解析单条生成的结果 → 界面用的「AI 结果」。
+     *
+     * 直接复用 [parseReply]，只是把行号丢掉：这条路上只有一首曲子，
+     * 行号 0 只是为了让解析器高兴。
+     *
+     * ## 三种「不成功」必须分开，别都并成 null
+     *
+     * `parseReply` 已经能分辨两种情形，这里**不能把它们压成一个 null**：
+     *
+     * - `error != null` —— **真的读不懂**：模型答非所问、吐了一段散文。
+     *   这时该给「没从回答里解析出可用内容」。
+     * - `items` 为空但 `error == null` —— **解析得很干净，只是里面一条都没有**。
+     *   典型就是提示词明确允许的 `[]`：模型老实说「我认不出这首曲子」。
+     *   这时要给的是「没认出这首曲子」，而不是「解析失败」——
+     *   后者会让用户以为是程序坏了，去改接口地址，白折腾。
+     *
+     * 两者都返回一个**空 [OneResult]**（[OneResult.isBlank] 为 true），
+     * 由调用方按 `error` 决定文案；只有真正答非所问才返回 null。
+     */
+    fun parseOneReply(text: String?, customPrompt: String? = null): OneResult? {
+        val parsed = parseReply(text, ONE_FIELDS)
+        if (parsed.error != null) return null
+        val item = parsed.items.firstOrNull() ?: return OneResult()
+        val v = item.values
+        return OneResult(
+            title = v["title"].orEmpty(),
+            composer = v["composer"].orEmpty(),
+            instrument = v["instr"].orEmpty(),
+            genre = v["genre"].orEmpty(),
+            key = v["key"].orEmpty(),
+        )
+    }
+
+    /**
+     * 单条生成的结果。
+     *
+     * 字段全是**字符串而不是可空**：没给就是空串，不必让每个消费点都判一次 null。
+     * [key] 带的是缩写写法（`c#m` / `bB`），由 `ScoreKey.shortToSignature` 换算编码。
+     *
+     * 注意 [isBlank] 有两种来源，界面**不该**把它们区分展示（都是「没认出」）：
+     * 模型直接回了 `[]`，或者回了对象但五个值全空。
+     */
+    data class OneResult(
+        val title: String = "",
+        val composer: String = "",
+        val instrument: String = "",
+        val genre: String = "",
+        val key: String = "",
+    ) {
+        /** 一条有效值都没有：模型认不出这首曲子 */
+        val isBlank: Boolean
+            get() = title.isEmpty() && composer.isEmpty() && instrument.isEmpty() &&
+                genre.isEmpty() && key.isEmpty()
+
+        /**
+         * **只认出了曲名，其余四项全空。**
+         *
+         * 这个形态要单独拎出来，因为它跟「认得但都不确定」长得一模一样，
+         * 而两者的意思**完全相反**：
+         *
+         * - 真是「认得」：模型知道这首曲子是哪个作品，曲名是它有把握的一项，
+         *   另外四项只是拿不准 —— 曲名有价值，该照实铺给用户。
+         * - 其实是「不认得」：曲名不过是它把用户敲进去的那行字**原样重复**了一遍，
+         *   零信息量。它这么做往往是为了「显得有用」，或者误以为
+         *   「用户给的曲名写回去总没错」。
+         *
+         * 真机上 `gemini-3.8-flash` 就干了这件事：输入「您花开的样子 合唱」，
+         * 它回 `{"i":0,"title":"您花开的样子","composers":"","tags":"","genres":"","key":""}`。
+         * 界面照着渲染成蓝条「识别完成」+ 孤零零一行曲名，
+         * 用户完全分不清是「认出来了但信息少」还是「根本没认出来」。
+         *
+         * 判据只看**曲名以外的四项是否全空** —— 曲名是不是用户原样输入的，
+         * 到这一层已经无从核对（提示词可能已经被用户改过），
+         * 所以不做字符串比对，宁可偏保守地把这种形态标出来。
+         * 提示词那边已经明确禁止这个形态（见 [DEFAULT_PROMPT]），
+         * 这里是**双保险**：模型不听话时，界面仍然说实话。
+         */
+        val titleOnly: Boolean
+            get() = title.isNotEmpty() && composer.isEmpty() && instrument.isEmpty() &&
+                genre.isEmpty() && key.isEmpty()
+    }
 
     // ------------------------------------------------------------------ 挑行
 

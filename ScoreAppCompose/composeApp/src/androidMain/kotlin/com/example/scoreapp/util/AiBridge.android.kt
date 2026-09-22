@@ -7,7 +7,6 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
-import javax.net.ssl.HttpsURLConnection
 
 /**
  * AI 能力桥的 Android 实现。
@@ -27,7 +26,10 @@ internal class AndroidAiBridge : AiBridge {
 
             var conn: HttpURLConnection? = null
             try {
-                conn = (URL(config.endpoint).openConnection() as HttpsURLConnection).apply {
+                // 按 HttpURLConnection 收，不按 HttpsURLConnection：
+                // 用户可能填局域网自托管的 http:// 地址（清单里已允许明文流量），
+                // 强转成 Https 会在那一步直接 ClassCastException，报出一个看不懂的错。
+                conn = (URL(config.endpoint).openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
                     connectTimeout = CONNECT_TIMEOUT_MS
                     readTimeout = READ_TIMEOUT_MS

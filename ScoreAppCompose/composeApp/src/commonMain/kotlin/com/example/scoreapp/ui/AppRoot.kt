@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import com.example.scoreapp.model.RootTab
 import com.example.scoreapp.model.Screen
 import com.example.scoreapp.ui.components.AppIcons
+import com.example.scoreapp.ui.components.NetOpenOverlay
 import com.example.scoreapp.ui.components.PdfViewerScreen
 import com.example.scoreapp.ui.screens.ComposersScreen
 import com.example.scoreapp.ui.screens.DetailScreen
@@ -58,7 +59,7 @@ import com.example.scoreapp.ui.screens.WorksScreen
 import com.example.scoreapp.ui.screens.membersOf
 import com.example.scoreapp.ui.sheets.EditSheet
 import com.example.scoreapp.ui.sheets.FilterSheet
-import com.example.scoreapp.ui.sheets.FixAiSheet
+import com.example.scoreapp.ui.sheets.MoreSheet
 import com.example.scoreapp.ui.sheets.ImportSheet
 import com.example.scoreapp.ui.sheets.MoreSheet
 import com.example.scoreapp.ui.sheets.SetDetailSheet
@@ -116,6 +117,10 @@ fun AppRoot(
                         // 校对页是整页表格，自己带顶栏与底部动作区，
                         // 不套用悬浮导台，所以也不给它留底部空间。
                         current is Screen.Fix -> FixScreen(state)
+                        // AI 设置同为从「我的」压栈进去的子页，自带顶栏与底部保存条
+                        current is Screen.AiSetup -> AiSetupScreen(state)
+                        // 网盘浏览同为整页：自带顶栏、连接条与面包屑
+                        current is Screen.Netdisk -> NetdiskScreen(state)
                         else -> MeScreen(state, navClearance)
                     }
                 }
@@ -124,7 +129,13 @@ fun AppRoot(
             // 悬浮导台：仅在主界面（非详情页）显示，与原型一致。
             // 校对页也排除：它自带底部动作区（导出/写回），
             // 再叠一个导台会挡住那张表的最后几行。
-            if (state.detail == null && state.current !is Screen.Fix) {
+            // AI 设置页同理排除：它底部是「保存」按钮，叠一个导台会把按钮压住。
+            // 网盘页排除：它是「我的 → 网盘」压栈进去的子页，自带返回顶栏。
+            if (state.detail == null &&
+                state.current !is Screen.Fix &&
+                state.current !is Screen.AiSetup &&
+                state.current !is Screen.Netdisk
+            ) {
                 BottomNav(
                     state = state,
                     modifier = Modifier
@@ -154,9 +165,37 @@ fun AppRoot(
                 }
             }
 
+            // 网盘条目「打开」：要先下载，而下载是 suspend 的，点击回调里起不了协程。
+            // 同一个套路（pendingPick）：点击只记一次「请求」，真正的活儿在 effect 里做。
+            //
+            // **这个 effect 绝不能回写 state.netOpenRequest** —— 它就是本 effect 的 key。
+            // 旧写法在这里 `= null` 置空，等于把自己的 key 改掉：Compose 随即取消
+            // 正在跑的那次下载协程，而 IO 块不看取消、文件照旧写完，于是收尾代码
+            // 永远不执行，界面停在「已下载，正在打开…」（1.23 真机定位）。
+            // 要重跑靠点击产生**新对象**（seq 递增），不靠谁来清空。
+            LaunchedEffect(state.netOpenRequest) {
+                val req = state.netOpenRequest ?: return@LaunchedEffect
+                state.openNetdiskLibraryItem(req.remotePath)
+            }
+
             SheetHost(state)
             ReaderHost(state)
             ToastHost(state)
+            // 首页网盘页的下载浮层：下载是 suspend 的，反馈只能挂在最外层，
+            // 否则用户点了没反应（1.20 之前首页这边连进度都没有）
+            if (state.netOpeningKey != null) {
+                NetOpenOverlay(
+                    title = state.netOpenTitle ?: "网盘乐谱",
+                    subtitle = state.netOpenSubtitle,
+                    progress = state.netOpenProgress,
+                    done = state.netOpenDone,
+                    total = state.netOpenTotal,
+                    error = state.netOpenError,
+                    detail = state.netOpenDetail,
+                    onRetry = { state.retryNetOpen() },
+                    onDismiss = { state.dismissNetOpen() },
+                )
+            }
         }
     }
 }
@@ -363,7 +402,6 @@ private fun SheetHost(state: ScoreAppState) {
         SheetKind.Import -> ImportSheet(state, dismiss)
         SheetKind.Sort -> SortSheet(state, dismiss)
         SheetKind.More -> MoreSheet(state, dismiss)
-        SheetKind.FixAi -> FixAiSheet(state, dismiss)
         SheetKind.SetDetail -> {
             val set = state.viewingSet
             if (set != null) {

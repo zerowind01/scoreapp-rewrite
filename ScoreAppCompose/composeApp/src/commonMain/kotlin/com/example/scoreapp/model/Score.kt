@@ -51,10 +51,21 @@ data class Score(
      */
     val keysf: Int? = null,
     val keymi: Int? = null,
+    /**
+     * **网盘入库条目的远端地址**；本机谱子一律为 null。
+     *
+     * 有它才需要「先下载再打开」，没有就是本机文件直接开。
+     * 放在最后一位是为了不打乱任何一处按位置传参的构造调用。
+     */
+    val remotePath: String? = null,
 ) {
     /** 是否已关联可打开的 PDF 文件 */
     val hasPdf: Boolean
         get() = !filePath.isNullOrBlank() || !assetPdf.isNullOrBlank()
+
+    /** 是否网盘条目。首页靠它把「本机」与「网盘」分成两个标签页 */
+    val isNet: Boolean
+        get() = !remotePath.isNullOrBlank()
 
     /** 展示用的文件名（优先本地导入文件） */
     val displayFile: String?
