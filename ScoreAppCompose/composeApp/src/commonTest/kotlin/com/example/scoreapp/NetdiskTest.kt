@@ -369,6 +369,22 @@ class NetdiskTest {
         assertNotEquals(Netdisk.cacheFileName(long + "2.pdf"), name, "不同的路径不能撞车")
     }
 
+    @Test
+    fun `封面配色按路径稳定分配且落在色板内`() {
+        assertEquals(10, Netdisk.COVER_PALETTES.size)
+        assertEquals(
+            Netdisk.coverPalette("/dav/quark/乐谱/月光.pdf"),
+            Netdisk.coverPalette("/dav/quark/乐谱/月光.pdf"),
+            "同一份谱子永远同一组颜色",
+        )
+        for (p in listOf("", "/dav/a.pdf", "/dav/我的备份/Forscore同步/再回首.pdf")) {
+            assertTrue(Netdisk.coverPalette(p) in Netdisk.COVER_PALETTES.indices, "越界：$p")
+        }
+        // 取高 16 位就是为了让相近路径也能铺开 —— 520 份的库不许挤在一两格里
+        val seen = (1..520).map { Netdisk.coverPalette("/dav/quark/乐谱/谱$it.pdf") }.toSet()
+        assertTrue(seen.size >= 6, "520 份只落到 ${seen.size} 组配色，色板等于白设")
+    }
+
     // ------------------------------------------------ 体积文案
 
     @Test

@@ -35,6 +35,9 @@
      时期 未指定 / 难度 — / 来源 网盘；标题由文件名去扩展名而来。
   5. 元数据**只存本地**，不写回网盘：WebDAV 只能写文件，夸克里的乐谱没有
      可写元数据的通道，硬写会变成往用户网盘里乱塞文件。
+ *  6. 网盘条目的缩略图是「封面卡」：底色按**远端路径**哈希从十组配色里稳定分配
+ *     （同一份谱子永远同一组），曲名作主标题；作曲家/类型/乐器**只印有信息量的**
+ *     ——占位符（佚名/未编目/未分类）一律不印。已缓存条目显示真首页（Compose 侧）。
   6. 同步状态必须说人话：同步中 / 已同步 · 刚刚 / 同步失败，显示的是 N 分钟前的列表。
 -->
 <style>
@@ -99,6 +102,14 @@
   .ico{width:34px; height:44px; flex:none; border-radius:5px; background:var(--s3);
     display:flex; align-items:center; justify-content:center; font-size:10px; color:var(--t2)}
   .ico.net{background:var(--bluebg); color:var(--blue)}
+  /* 封面卡：程序化底图，底色按路径哈希取自十组配色（JS coverPalette） */
+  .cover{width:40px; height:54px; flex:none; border-radius:5px; display:flex;
+    flex-direction:column; justify-content:flex-end; padding:4px 4px 3px;
+    color:#fff; overflow:hidden; box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)}
+  .cover .ct{font-size:8px; font-weight:700; line-height:1.2; word-break:break-all;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden}
+  .cover .cs{font-size:6px; opacity:.75; margin-top:1px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
   .body{flex:1; min-width:0}
   .nm{font-size:13px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
   .sub{font-size:11px; color:var(--t2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
@@ -436,6 +447,44 @@ function dlLabel(pct, done, total) {
   return (pct < 0 ? '正在下载…' : pct + '%') + dlBytes(done, total);
 }
 
+// ---------------- 封面卡：没有真封面（还没打开过）时的程序化底图 ----------------
+// 颜色按远端路径哈希稳定分配：同一份谱子永远是同一组，不同目录的同名也不同。
+// 只印有信息量的字段——占位符（佚名/未编目/未分类）印上去只是噪音，一律过滤。
+var COVER_PALETTES = [
+  ['#243b4a', '#5b7f96'], ['#3a2a1c', '#8a6a45'], ['#2d2a4a', '#6f6a9e'],
+  ['#1f3d2b', '#4f7f5f'], ['#4a1f2b', '#96556b'], ['#233a3a', '#527f7f'],
+  ['#402d1f', '#8f6a4a'], ['#2b344a', '#64749e'], ['#3d2352', '#7d5596'],
+  ['#33421f', '#6b8a4a'],
+];
+function coverPalette(remotePath) {
+  // FNV-1a，与 Kotlin 侧逐字节同族（先按 UTF-8 编码），取高 16 位再取模保证非负
+  var bytes = new TextEncoder().encode(remotePath);
+  var h = 0x811c9dc5;
+  for (var i = 0; i < bytes.length; i++) {
+    h = (h ^ bytes[i]) >>> 0;
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return (h >>> 16) % COVER_PALETTES.length;
+}
+function coverFor(it) {
+  var composer = it.composer && it.composer !== '佚名' ? it.composer : null;
+  var parts = [];
+  if (it.type && it.type !== '未编目') parts.push(it.type);
+  if (it.instrument && it.instrument !== '未分类') parts.push(it.instrument);
+  return {
+    palette: coverPalette(it.remotePath || ''),
+    composer: composer,
+    sub: parts.length ? parts.join(' · ') : null,
+  };
+}
+function coverHtml(it) {
+  var c = coverFor(it);
+  var pal = COVER_PALETTES[c.palette];
+  return '<div class="cover" style="background:linear-gradient(135deg,' + pal[0] + ',' + pal[1] + ')">'
+    + '<div class="ct">' + it.title + '</div>'
+    + (c.composer ? '<div class="cs">' + c.composer + '</div>' : '')
+    + '</div>';
+}
 function formatAgo(ms) {
   if (!ms) return '从没同步过';
   var s = Math.floor(ms / 1000);
@@ -610,7 +659,7 @@ function renderList() {
       var it = libItems[i];
       var need = needDownload(it, cache);
       html += '<div class="row" data-i="' + i + '">'
-        + '<div class="ico net">网盘</div>'
+        + coverHtml(it)
         + '<div class="body"><div class="nm">' + it.title + '</div>'
         + '<div class="sub">' + it.composer + ' · ' + it.type + ' · ' + it.instrument + '</div></div>'
         + '<div class="flag ' + (need ? 'dl' : 'on') + '">' + (need ? '需下载' : '已缓存') + '</div>'

@@ -40,6 +40,13 @@ data class NetLibItem(
     val size: Long = 0L,
 )
 
+/** 网盘条目的封面排版参数（封面卡上印什么）。占位符字段一律为 null —— 印上去只是噪音 */
+data class NetCover(
+    val palette: Int,
+    val composer: String?,
+    val sub: String?,
+)
+
 /** 一次同步的结果。[added] / [removed] 用来给一句「新增 N 份、移除 M 份」的提示 */
 data class NetLibSync(
     val items: List<NetLibItem>,
@@ -210,6 +217,24 @@ object NetLibrary {
         remotePath = Netdisk.normPath(path),
         size = size,
     )
+
+    /**
+     * 封面卡上印什么：曲名恒印（主标题），其余字段**只印有信息量的**——
+     * 占位符（佚名 / 未编目 / 未分类）印上去只是噪音，一律过滤。
+     * 配色按远端路径稳定分配（见 [Netdisk.coverPalette]）。
+     */
+    fun coverFor(item: NetLibItem): NetCover {
+        val composer = item.composer.takeIf { it.isNotBlank() && it != "佚名" }
+        val parts = buildList {
+            if (item.type.isNotBlank() && item.type != "未编目") add(item.type)
+            if (item.instrument.isNotBlank() && item.instrument != "未分类") add(item.instrument)
+        }
+        return NetCover(
+            palette = Netdisk.coverPalette(item.remotePath),
+            composer = composer,
+            sub = if (parts.isEmpty()) null else parts.joinToString(" · "),
+        )
+    }
 
     /** 把用户改过的字段盖到条目上。**只盖 meta 里有的字段**，没改的保持默认 */
     fun applyMeta(item: NetLibItem, meta: Map<String, String>?): NetLibItem {

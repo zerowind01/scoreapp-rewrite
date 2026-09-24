@@ -68,7 +68,8 @@ try {
       "\n;return { isPdfName, normPath, joinPath, titleFromFileName, metaKeyOf," +
       " defaultMetaOf, applyMeta, syncLibrary, saveMetaDraft, toggleBound, isBound," +
       " boundSummary, needDownload, formatAgo, syncStatusText, fetchBoundDir, TREE, LOCAL," +
-      " itemsForTab, tabTitle, TAB_LOCAL, TAB_NET, dlLabel, dlBytes, dlSize };"
+      " itemsForTab, tabTitle, TAB_LOCAL, TAB_NET, dlLabel, dlBytes, dlSize," +
+      " COVER_PALETTES, coverPalette, coverFor };"
   )(documentStub, windowStub, windowStub.localStorage);
 } catch (e) {
   console.error("页面脚本执行失败：", e && e.stack ? e.stack : e);
@@ -292,6 +293,31 @@ eq("服务端没给总长度就只说已收", mod.dlLabel(-1, 1048576, 0), "正�
 eq("一点都还没收到", mod.dlLabel(-1, 0, 0), "正在下载…");
 eq("0% 也报百分比", mod.dlLabel(0, 0, 0), "0%");
 eq("KB 级也看得见变化", mod.dlLabel(-1, 524288, 6291456), "正在下载…  512 KB / 6.0 MB");
+
+// ---------------- 封面卡：配色稳定 + 占位符过滤 ----------------
+const pal0 = mod.coverPalette("/dav/乐谱/月光.pdf");
+ok("配色落在色板范围内", pal0 >= 0 && pal0 < mod.COVER_PALETTES.length);
+eq("同一份谱子永远同一组颜色", mod.coverPalette("/dav/乐谱/月光.pdf"), pal0);
+eq("色板十组", mod.COVER_PALETTES.length, 10);
+(function () {
+  const seen = new Set();
+  for (let i = 1; i <= 520; i++) seen.add(mod.coverPalette("/dav/quark/乐谱/谱" + i + ".pdf"));
+  ok("520 份的库不至于挤在一两格里", seen.size >= 6, "只落到 " + seen.size + " 组");
+})();
+const bareCover = mod.coverFor({
+  title: "月光", composer: "佚名", type: "未编目", instrument: "未分类",
+  remotePath: "/dav/乐谱/月光.pdf",
+});
+eq("占位作曲家不印", bareCover.composer, null);
+eq("占位类型/乐器不印", bareCover.sub, null);
+const fullCover = mod.coverFor({
+  title: "月光", composer: "贝多芬", type: "奏鸣曲", instrument: "钢琴",
+  remotePath: "/dav/乐谱/月光.pdf",
+});
+eq("真作曲家印上", fullCover.composer, "贝多芬");
+eq("类型·乐器 拼进副行", fullCover.sub, "奏鸣曲 · 钢琴");
+ok("配色跟远端路径走", fullCover.palette === mod.coverPalette("/dav/乐谱/月光.pdf"));
+ok("空作曲家也不印", mod.coverFor({ remotePath: "/x.pdf", composer: "", type: "未编目", instrument: "未分类" }).composer === null);
 
 // ---------------- 结果 ----------------
 console.log(`\n通过 ${pass} 项，失败 ${fails.length} 项`);

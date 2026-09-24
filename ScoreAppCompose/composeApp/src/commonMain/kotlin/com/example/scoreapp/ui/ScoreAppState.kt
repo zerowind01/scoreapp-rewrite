@@ -1297,23 +1297,47 @@ class ScoreAppState {
             LibraryTab.Local -> localScores
         }
 
-    /** 网盘条目 → Score。filePath 只在**已缓存**时才有值（否则要先下载） */
-    private fun netItemToScore(item: NetLibItem, id: Long): Score = Score(
-        id = id,
-        title = item.title,
-        composer = item.composer,
-        type = item.type,
-        instrument = item.instrument,
-        period = item.period,
-        level = item.level,
-        source = item.source,
-        pages = 0,
-        dateAdded = 0L,
-        filePath = netdiskCache[item.key]?.localPath,
-        remotePath = item.remotePath,
-        thumbSeed = (item.key.hashCode() and 0x7fffffff) % 997,
-        thumbRows = 5,
-    )
+    /**
+     * 网盘条目 → Score。filePath 只在**已缓存**时才有值（否则要先下载）。
+     *
+     * 封面：thumbKind 走「唱片封面」分支，底色按远端路径稳定分配，
+     * 曲名作主标题、作曲家/类型/乐器有真值才印 —— 元数据填得越全，封面越像真封面。
+     * 已缓存的条目 filePath 非空，ScoreThumb 会优先渲真首页，封面卡只是底线。
+     */
+    private fun netItemToScore(item: NetLibItem, id: Long): Score {
+        val cover = NetLibrary.coverFor(item)
+        val (c1, c2) = Netdisk.COVER_PALETTES[cover.palette]
+        return Score(
+            id = id,
+            title = item.title,
+            composer = item.composer,
+            type = item.type,
+            instrument = item.instrument,
+            period = item.period,
+            level = item.level,
+            source = item.source,
+            pages = 0,
+            dateAdded = 0L,
+            filePath = netdiskCache[item.key]?.localPath,
+            remotePath = item.remotePath,
+            thumbSeed = (item.key.hashCode() and 0x7fffffff) % 997,
+            thumbRows = 5,
+            thumbKind = Score.THUMB_COVER,
+            coverTitle = item.title,
+            coverEn = cover.composer,
+            coverSub = cover.sub,
+            coverTColor = "#ffffff",
+            coverDeco = "arc",
+            coverC1 = c1,
+            coverC2 = c2,
+            coverTx = 15f,
+            coverTy = 24f,
+            coverTSize = 13f,
+            coverTGap = 15f,
+            coverSubX = 15f,
+            coverSubY = 88f,
+        )
+    }
 
     /** 网盘条目的缓存标记：已缓存 / 下载中 / 需下载。不写清楚用户会以为点了没反应 */
     fun netBadgeOf(score: Score): String {

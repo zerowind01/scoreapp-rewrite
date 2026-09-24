@@ -324,7 +324,8 @@ private fun DrawScope.drawCover(score: Score, measurer: TextMeasurer) {
     }
 
     /**
-     * 以左边界为锚点绘制单行文本：必要时缩字号（最多缩到 68%），
+     * 以左边界为锚点绘制单行文本：必要时缩字号（最多缩到 55%——网盘条目
+     * 直接拿文件名当曲名，超长的多，缩太狠会变成蚂蚁字），
      * 仍超宽则按省略号截断。截断依赖平台单行省略能力，无法逐字符试探。
      */
     fun drawAligned(
@@ -348,8 +349,8 @@ private fun DrawScope.drawCover(score: Score, measurer: TextMeasurer) {
             ),
             maxLines = 1,
         )
-        if (layout.size.width > usable && size > wantSize * 0.68f) {
-            size = max(wantSize * 0.68f, size * (usable / layout.size.width))
+        if (layout.size.width > usable && size > wantSize * 0.55f) {
+            size = max(wantSize * 0.55f, size * (usable / layout.size.width))
             layout = measurer.measure(
                 text = text,
                 style = TextStyle(

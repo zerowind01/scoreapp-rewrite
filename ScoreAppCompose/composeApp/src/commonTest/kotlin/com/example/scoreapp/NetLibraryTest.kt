@@ -69,6 +69,27 @@ class NetLibraryTest {
         )
     }
 
+    // ------------------------------------------------------------ 封面卡
+
+    @Test
+    fun `封面字段过滤占位符`() {
+        val bare = NetLibrary.coverFor(NetLibrary.defaultMetaOf("月光.pdf", "/dav/乐谱/月光.pdf", 1))
+        assertEquals(null, bare.composer, "佚名不印")
+        assertEquals(null, bare.sub, "未编目/未分类不印")
+        assertTrue(bare.palette in Netdisk.COVER_PALETTES.indices)
+
+        val full = NetLibrary.coverFor(
+            NetLibrary.defaultMetaOf("月光.pdf", "/dav/乐谱/月光.pdf", 1).copy(
+                composer = "贝多芬",
+                type = "奏鸣曲",
+                instrument = "钢琴",
+            ),
+        )
+        assertEquals("贝多芬", full.composer)
+        assertEquals("奏鸣曲 · 钢琴", full.sub)
+        assertEquals(Netdisk.coverPalette("/dav/乐谱/月光.pdf"), full.palette, "配色跟远端路径走")
+    }
+
     @Test
     fun `applyMeta 只盖有的字段 空串不算`() {
         val base = NetLibrary.defaultMetaOf("月光.pdf", "/dav/乐谱/月光.pdf", 1)

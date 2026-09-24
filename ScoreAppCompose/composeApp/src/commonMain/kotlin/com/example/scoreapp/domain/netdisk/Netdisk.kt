@@ -284,6 +284,38 @@ object Netdisk {
         else raw.substring(0, CACHE_NAME_TRIM) + "-" + shortHash(raw) + ".pdf"
     }
 
+    /**
+     * 网盘封面配色板：十组「深→浅」渐变，给没有真封面（还没打开过）的条目当底色。
+     * 颜色按**远端路径**哈希稳定分配（[coverPalette]）——同一份谱子在任何设备、
+     * 任何时间都是同一组；不同目录下的同名谱子路径不同，颜色也不同。
+     */
+    val COVER_PALETTES: List<Pair<String, String>> = listOf(
+        "#243b4a" to "#5b7f96", // 靛蓝
+        "#3a2a1c" to "#8a6a45", // 琥珀棕
+        "#2d2a4a" to "#6f6a9e", // 暮紫
+        "#1f3d2b" to "#4f7f5f", // 苔绿
+        "#4a1f2b" to "#96556b", // 酒红
+        "#233a3a" to "#527f7f", // 墨青
+        "#402d1f" to "#8f6a4a", // 赭石
+        "#2b344a" to "#64749e", // 蓝灰
+        "#3d2352" to "#7d5596", // 紫罗兰
+        "#33421f" to "#6b8a4a", // 橄榄
+    )
+
+    /**
+     * 封面配色序号（[COVER_PALETTES] 的下标）。与 [shortHash] 同族的 FNV-1a，
+     * 但取**高 16 位**再取模：相似路径（同目录只差序号）在低 16 位区分度不够；
+     * ushr 保证结果非负 —— 直接对 32 位有符号值取模会出负下标。
+     */
+    fun coverPalette(remotePath: String): Int {
+        var h = -0x6e38e6c3L // 0x811c9dc5
+        for (b in remotePath.encodeToByteArray()) {
+            h = h xor (b.toLong() and 0xFFL)
+            h = (h * 0x01000193L) and 0xFFFFFFFFL
+        }
+        return ((h ushr 16) and 0xFFFFL).toInt() % COVER_PALETTES.size
+    }
+
     /** FNV-1a 32 位。只为生成短后缀，不需要抗碰撞强度，但要**稳定**（同一路径永远同一值） */
     private fun shortHash(s: String): String {
         var h = -0x6e38e6c3L // 0x811c9dc5
